@@ -40,6 +40,11 @@ pub struct TMConfig {
     pub transaction_timeout: Duration,
 }
 
+// default values
+const DEFAULT_MAX_DELAY: u64 = 1;
+const DEFAULT_MAX_RETRIES: usize = 5;
+const DEFAULT_TIMEOUT: u64 = 5;
+
 impl TMConfig {
     pub fn initialize() -> config_error::Result<Self> {
         let env_cli_config = TMEnvCLIConfig::from_args();
@@ -47,26 +52,26 @@ impl TMConfig {
         let file_config: TMFileConfig =
             configuration::config::load_config_file(
                 env_cli_config.tm_config,
-                "transaction manager",
+                "tx-manager",
             )?;
 
         let max_delay = Duration::from_secs(
             env_cli_config
                 .tm_max_delay
                 .or(file_config.tm_max_delay)
-                .unwrap_or(1),
+                .unwrap_or(DEFAULT_MAX_DELAY),
         );
 
         let max_retries = env_cli_config
             .tm_max_retries
             .or(file_config.tm_max_retries)
-            .unwrap_or(5);
+            .unwrap_or(DEFAULT_MAX_RETRIES);
 
         let transaction_timeout = Duration::from_secs(
             env_cli_config
                 .tm_timeout
                 .or(file_config.tm_timeout)
-                .unwrap_or(5),
+                .unwrap_or(DEFAULT_TIMEOUT),
         );
 
         Ok(TMConfig {
