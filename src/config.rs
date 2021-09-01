@@ -6,12 +6,12 @@ use serde::Deserialize;
 use std::time::Duration;
 use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Clone, Debug)]
 #[structopt(
     name = "tm_config",
     about = "Configuration for transaction manager"
 )]
-struct TMEnvCLIConfig {
+pub struct TMEnvCLIConfig {
     /// Path to transaction manager config
     #[structopt(long, env)]
     pub tm_config: Option<String>,
@@ -46,9 +46,9 @@ const DEFAULT_MAX_RETRIES: usize = 5;
 const DEFAULT_TIMEOUT: u64 = 5;
 
 impl TMConfig {
-    pub fn initialize() -> config_error::Result<Self> {
-        let env_cli_config = TMEnvCLIConfig::from_args();
-
+    pub fn initialize(
+        env_cli_config: TMEnvCLIConfig,
+    ) -> config_error::Result<Self> {
         let file_config: TMFileConfig =
             configuration::config::load_config_file(
                 env_cli_config.tm_config,
