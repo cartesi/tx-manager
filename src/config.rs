@@ -12,7 +12,7 @@ use structopt::StructOpt;
     about = "Configuration for transaction manager"
 )]
 pub struct TMEnvCLIConfig {
-    /// Path to transaction manager config
+    /// Path to transaction manager .toml config
     #[structopt(long, env)]
     pub tm_config: Option<String>,
     /// Max delay (secs) between retries
@@ -28,9 +28,14 @@ pub struct TMEnvCLIConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct TMFileConfig {
-    pub tm_max_delay: Option<u64>,
-    pub tm_max_retries: Option<usize>,
-    pub tm_timeout: Option<u64>,
+    pub max_delay: Option<u64>,
+    pub max_retries: Option<usize>,
+    pub timeout: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct FileConfig {
+    pub tx_manager: TMFileConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -49,28 +54,25 @@ impl TMConfig {
     pub fn initialize(
         env_cli_config: TMEnvCLIConfig,
     ) -> config_error::Result<Self> {
-        let file_config: TMFileConfig =
-            configuration::config::load_config_file(
-                env_cli_config.tm_config,
-                "tx-manager",
-            )?;
+        let file_config: FileConfig =
+            configuration::config::load_config_file(env_cli_config.tm_config)?;
 
         let max_delay = Duration::from_secs(
             env_cli_config
                 .tm_max_delay
-                .or(file_config.tm_max_delay)
+                .or(file_config.tx_manager.max_delay)
                 .unwrap_or(DEFAULT_MAX_DELAY),
         );
 
         let max_retries = env_cli_config
             .tm_max_retries
-            .or(file_config.tm_max_retries)
+            .or(file_config.tx_manager.max_retries)
             .unwrap_or(DEFAULT_MAX_RETRIES);
 
         let transaction_timeout = Duration::from_secs(
             env_cli_config
                 .tm_timeout
-                .or(file_config.tm_timeout)
+                .or(file_config.tx_manager.timeout)
                 .unwrap_or(DEFAULT_TIMEOUT),
         );
 

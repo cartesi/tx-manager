@@ -7,7 +7,7 @@ homepage = "https://cartesi.io"
 edition = "2018"
 
 [dependencies]
-offchain-utils = { git = "https://github.com/cartesi/offchain-utils", rev = "bcab565" }
+offchain-utils = { git = "https://github.com/cartesi/offchain-utils", rev = "55c164f" }
 
 structopt = "0.3"
 serde = "1.0.0"
@@ -25,4 +25,4 @@ serde_json = "1.0"
 tokio = { version = "^1.5", features = ["macros"] }
 
 [build-dependencies]
-offchain-core = { git = "https://github.com/cartesi/offchain-utils", rev = "bcab565" }
+offchain-core = { git = "https://github.com/cartesi/offchain-utils", rev = "55c164f" }
