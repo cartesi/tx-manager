@@ -8,7 +8,8 @@ use ethers::abi::Detokenize;
 use ethers::contract::builders::ContractCall;
 use ethers::providers::Middleware;
 use ethers::types::{
-    Address, Bytes, NameOrAddress, TransactionRequest, H256, U256, U64,
+    transaction::eip2718::TypedTransaction, Address, Bytes, NameOrAddress,
+    H256, U256, U64,
 };
 
 use async_trait::async_trait;
@@ -296,26 +297,26 @@ pub trait TransactionProvider: Send + Sync {
     ) -> ProviderResult<Option<TransactionReceipt>, Self::Middleware>;
 }
 
-impl std::convert::TryFrom<TransactionRequest> for Transaction {
+impl std::convert::TryFrom<TypedTransaction> for Transaction {
     type Error = TxConversionError;
     fn try_from(
-        tx: TransactionRequest,
+        tx: TypedTransaction,
     ) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
-            from: tx.from.ok_or(
+            from: *tx.from().ok_or(
                 TransactionIncomplete {
                     err: "Call has no `from` address",
                 }
                 .build(),
             )?,
 
-            to: if let NameOrAddress::Address(a) = tx.to.ok_or(
+            to: if let NameOrAddress::Address(a) = tx.to().ok_or(
                 TransactionIncomplete {
                     err: "Call has no `to` address",
                 }
                 .build(),
             )? {
-                a
+                *a
             } else {
                 return TransactionIncomplete {
                     err: "Name not supported for `to` address".to_string(),
@@ -323,13 +324,13 @@ impl std::convert::TryFrom<TransactionRequest> for Transaction {
                 .fail();
             },
 
-            value: if let Some(v) = tx.value {
-                TransferValue::Value(v)
+            value: if let Some(v) = tx.value() {
+                TransferValue::Value(*v)
             } else {
                 TransferValue::Nothing
             },
 
-            call_data: tx.data,
+            call_data: tx.data().map(|data| data.clone()),
         })
     }
 }

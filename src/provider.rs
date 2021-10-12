@@ -176,7 +176,8 @@ impl<M: Middleware> types::TransactionProvider for Provider<M> {
                 if balance > gas * gas_price {
                     Some(balance - gas * gas_price)
                 } else {
-                    // TODO: Out of funds. Is this the correct way to handle this?
+                    // TODO: Out of funds. Is this the correct way to handle
+                    // this?
                     None
                 }
             }
@@ -272,7 +273,8 @@ impl<M: Middleware> types::TransactionProvider for Provider<M> {
             tx_request = tx_request.data(d.clone());
         }
 
-        let call_future = self.signer_middleware.estimate_gas(&tx_request);
+        let typed_tx = tx_request.into();
+        let call_future = self.signer_middleware.estimate_gas(&typed_tx);
 
         timeout(self.call_timeout, call_future)
             .await
