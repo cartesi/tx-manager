@@ -83,7 +83,7 @@ where
         let new_middleware = match &previous {
             Some(previous) => {
                 self.middleware_factory
-                    .new_middleware(Some(previous.signer_middleware.as_ref()))
+                    .new_middleware(Some(&previous.signer_middleware))
                     .await
             }
             None => self.middleware_factory.new_middleware(None).await,
@@ -100,14 +100,14 @@ where
 
 /// Concrete web3 implementation of TransactionActorProvider
 pub struct Provider<M: Middleware> {
-    signer_middleware: Arc<M>,
+    signer_middleware: M,
     call_timeout: std::time::Duration,
     nonce_mutex: Arc<NonceMutexManager>,
 }
 
 impl<M: Middleware> Provider<M> {
     pub fn new(
-        signer_middleware: Arc<M>,
+        signer_middleware: M,
         call_timeout: std::time::Duration,
         nonce_mutex: Arc<NonceMutexManager>,
     ) -> Self {

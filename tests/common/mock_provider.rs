@@ -2,7 +2,9 @@ use tx_manager::error::*;
 use tx_manager::types;
 
 use offchain_utils::block_subscriber::NewBlockSubscriber;
-use offchain_utils::middleware_factory::{self, MiddlewareFactory};
+use offchain_utils::middleware_factory::{
+    self, MiddlewareFactory, PhantomFactory,
+};
 use offchain_utils::offchain_core::ethers;
 use offchain_utils::offchain_core::types::Block;
 
@@ -193,12 +195,16 @@ pub struct DummyMiddlewareFactory {}
 
 #[async_trait]
 impl MiddlewareFactory for DummyMiddlewareFactory {
-    type Middleware = Provider<DummyRpcProvider>;
-    type InnerFactory = Self;
+    type Middleware = Arc<Provider<DummyRpcProvider>>;
+    type InnerFactory = PhantomFactory<Provider<DummyRpcProvider>>;
 
     /// User implemented methods
-    async fn current(&self) -> Arc<Self::Middleware> {
+    async fn current(&self) -> Self::Middleware {
         unreachable!("Dummy Middleware `current` unreachable")
+    }
+
+    async fn middleware_eq(&self, _: &Self::Middleware) -> bool {
+        unreachable!("Dummy Middleware `middleware_eq` unreachable")
     }
 
     async fn inner_factory(&self) -> &Self::InnerFactory {
@@ -207,9 +213,9 @@ impl MiddlewareFactory for DummyMiddlewareFactory {
 
     async fn build_and_set_middleware(
         &self,
-        _: Arc<<Self::InnerFactory as MiddlewareFactory>::Middleware>,
-    ) -> Arc<Self::Middleware> {
-        unreachable!("Dummy Middleware `build_middleware` unreachable")
+        _: <Self::InnerFactory as MiddlewareFactory>::Middleware,
+    ) -> Self::Middleware {
+        unreachable!("Dummy Middleware `build_and_set_middleware` unreachable")
     }
 
     fn should_retry(_: &<Self::Middleware as Middleware>::Error) -> bool {
@@ -220,7 +226,7 @@ impl MiddlewareFactory for DummyMiddlewareFactory {
     async fn new_middleware(
         &self,
         _: Option<&Self::Middleware>,
-    ) -> middleware_factory::Result<Arc<Self::Middleware>> {
+    ) -> middleware_factory::Result<Self::Middleware> {
         Ok(Arc::new(Provider::new(DummyRpcProvider {})))
     }
 }
@@ -244,7 +250,7 @@ impl types::ProviderFactory for MockProviderFactory {
     async fn get_provider(
         &self,
         _previous: Option<Self::Provider>,
-    ) -> ProviderResult<Self::Provider, Provider<DummyRpcProvider>> {
+    ) -> ProviderResult<Self::Provider, Arc<Provider<DummyRpcProvider>>> {
         Ok(MockProvider::new(Arc::clone(&self.mockchain)))
     }
 }
@@ -262,11 +268,11 @@ impl MockProvider {
 
 #[async_trait]
 impl types::TransactionProvider for MockProvider {
-    type Middleware = Provider<DummyRpcProvider>;
+    type Middleware = Arc<Provider<DummyRpcProvider>>;
 
     async fn accounts(
         &self,
-    ) -> ProviderResult<Vec<Address>, Provider<DummyRpcProvider>> {
+    ) -> ProviderResult<Vec<Address>, Arc<Provider<DummyRpcProvider>>> {
         Ok(vec![Address::repeat_byte(1), Address::repeat_byte(2)])
     }
 
@@ -276,8 +282,10 @@ impl types::TransactionProvider for MockProvider {
         gas: U256,
         gas_price: U256,
         nonce: U256,
-    ) -> ProviderResult<types::TransactionSubmission, Provider<DummyRpcProvider>>
-    {
+    ) -> ProviderResult<
+        types::TransactionSubmission,
+        Arc<Provider<DummyRpcProvider>>,
+    > {
         // Fake hash.
         let hash = H256::from_slice(&ethers::utils::keccak256(
             format!("{:?};{:?};{:?};{:?}", transaction, gas, gas_price, nonce)
@@ -305,8 +313,10 @@ impl types::TransactionProvider for MockProvider {
     async fn lock_and_get_nonce(
         &self,
         address: Address,
-    ) -> ProviderResult<(U256, OwnedMutexGuard<()>), Provider<DummyRpcProvider>>
-    {
+    ) -> ProviderResult<
+        (U256, OwnedMutexGuard<()>),
+        Arc<Provider<DummyRpcProvider>>,
+    > {
         let nonce = self.mockchain.lock().await.tx_count(address);
         let lock = self.mockchain.lock().await.acquire_lock().await;
         Ok((nonce, lock))
@@ -315,21 +325,21 @@ impl types::TransactionProvider for MockProvider {
     async fn balance(
         &self,
         _address: Address,
-    ) -> ProviderResult<U256, Provider<DummyRpcProvider>> {
+    ) -> ProviderResult<U256, Arc<Provider<DummyRpcProvider>>> {
         unimplemented!()
     }
 
     async fn estimate_gas(
         &self,
         _transaction: &types::Transaction,
-    ) -> ProviderResult<U256, Provider<DummyRpcProvider>> {
+    ) -> ProviderResult<U256, Arc<Provider<DummyRpcProvider>>> {
         // Fake gas estimation.
         Ok(30_000.into())
     }
 
     async fn gas_price(
         &self,
-    ) -> ProviderResult<U256, Provider<DummyRpcProvider>> {
+    ) -> ProviderResult<U256, Arc<Provider<DummyRpcProvider>>> {
         Ok(self.mockchain.lock().await.gas_price())
     }
 
@@ -338,7 +348,7 @@ impl types::TransactionProvider for MockProvider {
         hash: H256,
     ) -> ProviderResult<
         Option<types::TransactionReceipt>,
-        Provider<DummyRpcProvider>,
+        Arc<Provider<DummyRpcProvider>>,
     > {
         Ok(self.mockchain.lock().await.transaction(hash))
     }

@@ -45,7 +45,6 @@ async fn test_all() {
 
 ///
 ///Helpers
-///
 
 fn new_label(label: &mut usize) -> usize {
     let ret = *label;
@@ -109,7 +108,7 @@ async fn new_manager(
         BlockSubscriber<middleware_factory::WsProviderFactory>,
         usize,
     >,
-    BlockSubscriberHandle<Provider<Ws>>,
+    BlockSubscriberHandle<Arc<Provider<Ws>>>,
 ) {
     let retry = 0;
     let delay = std::time::Duration::from_millis(100);
