@@ -1,17 +1,19 @@
 #![allow(dead_code)]
 pub mod mock_provider;
-pub mod test_contract;
 
-use test_contract::TestContract;
+pub use testcontract_mod::TestContract;
 
 use offchain_utils::offchain_core::ethers;
 
-use ethers::contract::ContractFactory;
-use ethers::core::utils::{Geth, GethInstance, Solc};
+use ethers::contract::{abigen, ContractFactory};
+use ethers::core::utils::{Geth, GethInstance};
 use ethers::providers::{Http, Middleware, Provider};
 
+use hex;
 use std::convert::TryFrom;
 use std::sync::Arc;
+
+abigen!(TestContract, "./tests/common/contract/TestContract.abi",);
 
 pub async fn new_geth() -> (GethInstance, Arc<Provider<Http>>) {
     let geth = Geth::new().block_time(1u64).spawn();
@@ -22,14 +24,11 @@ pub async fn new_geth() -> (GethInstance, Arc<Provider<Http>>) {
 
 pub async fn deploy_test_contract<M: Middleware>(
     client: Arc<M>,
-    // ) -> Contract<M> {
 ) -> TestContract<M> {
-    let contract_name = "TestContract";
-    let path = "./tests/common/contract/TestContract.sol";
-    let contracts = Solc::new(&path).build().unwrap();
-    let contract = contracts.get(contract_name).unwrap();
-    let abi = contract.abi.clone();
-    let bytecode = contract.bytecode.clone();
+    let bytecode = hex::decode(include_bytes!("./contract/TestContract.bin"))
+        .unwrap()
+        .into();
+    let abi = testcontract_mod::TESTCONTRACT_ABI.clone();
 
     let factory = ContractFactory::new(abi, bytecode, Arc::clone(&client));
     let contract = factory.deploy(()).unwrap().send().await.unwrap();

@@ -9,7 +9,7 @@ use tx_manager::{provider::Factory, TransactionManager};
 
 use tx_manager::types::{FinalizedState, ResubmitStrategy, TransactionState};
 
-use common::test_contract::TestContract;
+use common::TestContract;
 use common::*;
 
 use ethers::{

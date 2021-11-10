@@ -2758,7 +2758,7 @@ dependencies = [
  "ethers-core",
  "ethers-providers",
  "futures",
- "offchain-core",
+ "hex",
  "offchain-utils",
  "serde",
  "serde_json",
