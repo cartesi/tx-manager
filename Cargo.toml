@@ -7,7 +7,7 @@ homepage = "https://cartesi.io"
 edition = "2018"
 
 [dependencies]
-offchain-utils = { git = "https://github.com/cartesi/offchain-utils", rev = "c4a9c05" }
+offchain-utils = { git = "https://github.com/cartesi/offchain-utils", tag = "v0.1.0" }
 
 structopt = "0.3"
 serde = "1.0.0"
