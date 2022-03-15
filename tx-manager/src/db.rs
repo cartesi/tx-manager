@@ -8,7 +8,7 @@ pub struct Database {}
 impl Database {
     pub fn get_transaction_receipt_for(
         &self,
-        transaction: &Transaction,
+        _transaction: &Transaction, // TODO
     ) -> Result<Option<TransactionReceipt>, SendError> {
         Ok(None) // TODO
     }
