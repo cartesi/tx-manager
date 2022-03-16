@@ -1,4 +1,3 @@
-use crate::manager::SendError;
 use ethers::types::{Address, U256};
 
 #[derive(Debug)]
@@ -34,7 +33,7 @@ pub enum Value {
 }
 
 impl TryFrom<Value> for U256 {
-    type Error = SendError;
+    type Error = crate::manager::Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::Value(v) => Ok(v),

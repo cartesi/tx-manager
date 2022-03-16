@@ -8,28 +8,35 @@ use ethers::types::{
     TransactionReceipt, U256,
 };
 
-use crate::{db::Database, gas_pricer::GasPricer, transaction::Transaction};
+use crate::db::{Database, DatabaseError};
+use crate::{gas_pricer::GasPricer, transaction::Transaction};
 
 #[derive(Debug)]
-pub enum SendError {
+pub enum Error {
     TODO,
     InconsistentDuplicates, // TODO : name
     ProviderError(ProviderError),
+    DatabaseError(DatabaseError),
 }
 
 pub struct Manager<P: JsonRpcClient> {
+    id: u128,
     provider: Provider<P>,
     gas_pricer: GasPricer,
     db: Database,
 }
 
 impl<P: JsonRpcClient> Manager<P> {
-    pub fn new(provider: Provider<P>, gas_pricer: GasPricer) -> Self {
-        Manager {
+    pub fn new(
+        provider: Provider<P>,
+        gas_pricer: GasPricer,
+    ) -> Result<Self, Error> {
+        return Ok(Manager {
+            id: 1, // TODO
             provider,
             gas_pricer,
-            db: Database {},
-        }
+            db: Database::new().map_err(Error::DatabaseError)?,
+        });
     }
 
     pub async fn send_transaction(
@@ -37,7 +44,7 @@ impl<P: JsonRpcClient> Manager<P> {
         transaction: Transaction,
         confirmations: usize,
         interval: Option<Duration>,
-    ) -> Result<TransactionReceipt, SendError> {
+    ) -> Result<TransactionReceipt, Error> {
         // Checking for duplicate transactions.
         if let Some(receipt) = self.deduplicate(&transaction)? {
             return Ok(receipt);
@@ -65,7 +72,7 @@ impl<P: JsonRpcClient> Manager<P> {
             self.provider
                 .estimate_gas(&TypedTransaction::Eip1559(request.clone()))
                 .await
-                .map_err(SendError::ProviderError)?,
+                .map_err(Error::ProviderError)?,
         );
 
         println!("transaction request => {:?}", request);
@@ -75,16 +82,16 @@ impl<P: JsonRpcClient> Manager<P> {
             .provider
             .send_transaction(request, None)
             .await
-            .map_err(SendError::ProviderError)?
+            .map_err(Error::ProviderError)?
             .confirmations(confirmations)
             .interval(interval.unwrap_or(Duration::from_secs(1)));
 
         // Waiting for the transaction to be confirmed.
         let receipt = pending
             .await
-            .map_err(SendError::ProviderError)
+            .map_err(Error::ProviderError)
             .transpose()
-            .unwrap_or(Err(SendError::TODO));
+            .unwrap_or(Err(Error::TODO));
 
         return receipt;
 
@@ -94,11 +101,11 @@ impl<P: JsonRpcClient> Manager<P> {
     fn deduplicate(
         &self,
         transaction: &Transaction,
-    ) -> Result<Option<TransactionReceipt>, SendError> {
+    ) -> Result<Option<TransactionReceipt>, Error> {
         return self.db.get_transaction_receipt_for(transaction);
     }
 
-    async fn get_nonce(&self, address: Address) -> Result<U256, SendError> {
+    async fn get_nonce(&self, address: Address) -> Result<U256, Error> {
         return self
             .provider
             .get_transaction_count(
@@ -106,6 +113,6 @@ impl<P: JsonRpcClient> Manager<P> {
                 Some(BlockId::Number(BlockNumber::Pending)),
             )
             .await
-            .map_err(SendError::ProviderError);
+            .map_err(Error::ProviderError);
     }
 }
