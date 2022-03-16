@@ -8,7 +8,7 @@ use ethers::types::{
     TransactionReceipt, U256,
 };
 
-use crate::db::{Database, DatabaseError};
+use crate::receipt_database::{ReceiptDatabase, ReceiptDatabaseError};
 use crate::{gas_pricer::GasPricer, transaction::Transaction};
 
 #[derive(Debug)]
@@ -16,14 +16,14 @@ pub enum Error {
     TODO,
     InconsistentDuplicates, // TODO : name
     ProviderError(ProviderError),
-    DatabaseError(DatabaseError),
+    ReceiptDatabaseError(ReceiptDatabaseError),
 }
 
 pub struct Manager<P: JsonRpcClient> {
     id: u128,
     provider: Provider<P>,
     gas_pricer: GasPricer,
-    db: Database,
+    db: ReceiptDatabase,
 }
 
 impl<P: JsonRpcClient> Manager<P> {
@@ -35,7 +35,7 @@ impl<P: JsonRpcClient> Manager<P> {
             id: 1, // TODO
             provider,
             gas_pricer,
-            db: Database::new().map_err(Error::DatabaseError)?,
+            db: ReceiptDatabase::new().map_err(Error::ReceiptDatabaseError)?,
         });
     }
 
@@ -99,10 +99,15 @@ impl<P: JsonRpcClient> Manager<P> {
     }
 
     fn deduplicate(
-        &self,
+        &mut self,
         transaction: &Transaction,
     ) -> Result<Option<TransactionReceipt>, Error> {
-        return self.db.get_transaction_receipt_for(transaction);
+        // TODO: what happens when it returns nil?
+        return self
+            .db
+            .get_receipt(transaction)
+            .map(Some)
+            .map_err(Error::ReceiptDatabaseError);
     }
 
     async fn get_nonce(&self, address: Address) -> Result<U256, Error> {
