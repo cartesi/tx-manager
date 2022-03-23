@@ -8,6 +8,7 @@ pub struct Transaction {
     pub to: Address,
     pub value: Value,
     // pub call_data: Option<Bytes>, // smart contract payload
+    // TODO : cap how much you can pay in fees (how many times you increase)
 }
 
 impl PartialEq for Transaction {
@@ -27,16 +28,17 @@ pub enum Priority {
 
 #[derive(Debug)]
 pub enum Value {
-    Value(U256),
+    Number(U256),
     // All,
     // Nothing,
 }
 
+// Value tem que converter para Option<U256>
 impl TryFrom<Value> for U256 {
     type Error = crate::manager::Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::Value(v) => Ok(v),
+            Value::Number(v) => Ok(v),
         }
     }
 }

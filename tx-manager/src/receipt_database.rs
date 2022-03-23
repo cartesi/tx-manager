@@ -1,24 +1,23 @@
-use std::ops::Deref;
-
 use ethers::types::TransactionReceipt;
 
-use redis::{
-    Client, Commands, Connection, ErrorKind, FromRedisValue, RedisError,
-    RedisResult, Value,
-};
+pub trait ReceiptDatabase {
+    type Error;
+    fn get_receipt(
+        &mut self,
+        label: &str,
+    ) -> Result<Option<TransactionReceipt>, Self::Error>;
+}
 
-use crate::transaction::Transaction;
-
-#[derive(Debug)]
+/*
 pub enum ReceiptDatabaseError {
     TODO,
 }
 
-pub struct ReceiptDatabase {
+pub struct Database {
     con: Connection,
 }
 
-impl ReceiptDatabase {
+impl Database {
     pub fn new() -> Result<Self, ReceiptDatabaseError> {
         return Ok(Self {
             con: Client::open("redis://127.0.0.1/6379")
@@ -55,3 +54,4 @@ impl FromRedisValue for Receipt {
         )));
     }
 }
+*/
