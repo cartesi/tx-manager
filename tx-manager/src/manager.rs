@@ -1,12 +1,13 @@
 use async_recursion::async_recursion;
 use core::time::Duration;
+use serde::{Deserialize, Serialize};
 
 use ethers::providers::{JsonRpcClient, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
     Address, BlockId, BlockNumber, Eip1559TransactionRequest, NameOrAddress,
-    TransactionReceipt, U256,
+    TransactionReceipt, H256, U256,
 };
 
 use tokio::time::sleep;
@@ -17,9 +18,17 @@ use crate::{gas_pricer::GasPricer, transaction::Transaction};
 #[derive(Debug)]
 pub enum Error<DatabaseError> {
     TODO,
-    CouldNotStoreTransaction(DatabaseError),
+    CouldNotSetTransaction(DatabaseError),
     CouldNotUpdateTransactionState(DatabaseError),
+    CouldNotGetTransactionState(DatabaseError),
     CouldNotClearTransaction(DatabaseError, TransactionReceipt),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct State {
+    nonce: Option<U256>,
+    transaction: Transaction,
+    pending_transactions: Vec<H256>, // hashes
 }
 
 pub struct Manager<P: JsonRpcClient, DB: Database> {
@@ -31,6 +40,10 @@ pub struct Manager<P: JsonRpcClient, DB: Database> {
 }
 
 impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
+    /*
+     * Sends and confirms any pending transaction persisted in the database
+     * before returning an instance of the transaction manager.
+     */
     pub async fn new(
         provider: Provider<P>,
         gas_pricer: GasPricer,
@@ -44,17 +57,19 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
             block_time: Duration::from_secs(10),
         };
 
-        if let Ok(transaction) = manager.has_pending_transaction() {
-            manager.confirm_transaction(&transaction, None).await?;
+        // Checking for pending transactions.
+        if let Some(mut state) = manager
+            .db
+            .get_state()
+            .await
+            .map_err(Error::CouldNotGetTransactionState)?
+        {
+            manager
+                .confirm_transaction(&mut state, manager.polling_time, false)
+                .await?;
         }
 
         return Ok(manager);
-    }
-
-    pub fn has_pending_transaction(
-        &self,
-    ) -> Result<Transaction, Error<DB::Error>> {
-        unimplemented!()
     }
 
     pub async fn send_transaction(
@@ -62,17 +77,27 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         transaction: Transaction,
         polling_time: Option<Duration>,
     ) -> Result<TransactionReceipt, Error<DB::Error>> {
+        let mut state = State {
+            nonce: None,
+            transaction,
+            pending_transactions: Vec::new(),
+        };
+
         // Storing information about the pending transaction in the database.
         self.db
-            .store_transaction(&transaction)
+            .set_state(&state)
             .await
-            .map_err(Error::CouldNotStoreTransaction)?;
+            .map_err(Error::CouldNotSetTransaction)?;
 
-        let receipt =
-            self.submit_transaction(&transaction, polling_time).await?;
+        let receipt = self
+            .submit_transaction(
+                &mut state,
+                polling_time.unwrap_or(self.polling_time),
+            )
+            .await?;
 
         // Clearing information about the transaction in the database.
-        self.db.clear_transaction().await.map_err(|err| {
+        self.db.clear_state().await.map_err(|err| {
             Error::CouldNotClearTransaction(err, receipt.clone())
         })?;
 
@@ -82,9 +107,11 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
     #[async_recursion(?Send)]
     async fn submit_transaction(
         &self,
-        transaction: &Transaction,
-        polling_time: Option<Duration>,
+        state: &mut State,
+        polling_time: Duration,
     ) -> Result<TransactionReceipt, Error<DB::Error>> {
+        let transaction = &state.transaction;
+
         // Estimating gas prices.
         let (max_fee_per_gas, max_priority_fee_per_gas) =
             self.gas_pricer.estimate_eip1559_fees(transaction.priority);
@@ -96,7 +123,11 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
             gas: None,
             value: Some(transaction.value.try_into().map_err(|_| Error::TODO)?),
             data: None,
-            nonce: Some(self.get_nonce(transaction.from).await?),
+            nonce: Some(
+                state
+                    .nonce
+                    .unwrap_or(self.get_nonce(transaction.from).await?),
+            ),
             access_list: AccessList::default(),
             max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
             max_fee_per_gas: Some(max_fee_per_gas),
@@ -110,36 +141,47 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
                 .map_err(|_| Error::TODO)?,
         );
 
-        // Updating the transaction manager state.
-        self.db
-            .update_transaction(request.clone())
-            .await
-            .map_err(Error::CouldNotUpdateTransactionState)?;
-
         // Sending the transaction.
-        self.provider
+        let pending_transaction = self
+            .provider
             .send_transaction(request, None)
             .await
             .map_err(|_| Error::TODO)?;
 
+        // Updating the transaction manager state.
+        state.pending_transactions.insert(0, *pending_transaction);
+        self.db
+            .set_state(state)
+            .await
+            .map_err(Error::CouldNotUpdateTransactionState)?;
+
         // Confirming the transaction
-        return self.confirm_transaction(&transaction, polling_time).await;
+        return self.confirm_transaction(state, polling_time, true).await;
     }
 
     async fn confirm_transaction(
         &self,
-        transaction: &Transaction,
-        optional_polling_time: Option<Duration>,
+        state: &mut State,
+        polling_time: Duration,
+        sleep_first: bool,
     ) -> Result<TransactionReceipt, Error<DB::Error>> {
-        let polling_time = optional_polling_time.unwrap_or(self.polling_time);
-        let mut sleep_time = polling_time;
+        let mut sleep_time = if sleep_first {
+            polling_time
+        } else {
+            Duration::from_secs(0)
+        };
 
         loop {
-            // Sleeping for the average block time.
+            // Sleeping.
             sleep(sleep_time).await;
 
             // Were any of the transactions mined?
-            match self.get_mined_transaction().await {
+            let receipt = self
+                .get_mined_transaction(state)
+                .await
+                .map_err(|_| Error::TODO)?;
+
+            match receipt {
                 Some(receipt) => {
                     let transaction_block =
                         receipt.block_number.unwrap().as_usize();
@@ -152,7 +194,7 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
 
                     // Are there enough confirmations?
                     if current_block - transaction_block
-                        >= transaction.confirmations
+                        >= state.transaction.confirmations
                     {
                         return Ok(receipt);
                     }
@@ -163,10 +205,7 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
                     // Have I waited too much?
                     if self.should_resend_transaction() {
                         return self
-                            .submit_transaction(
-                                &transaction,
-                                optional_polling_time,
-                            )
+                            .submit_transaction(state, polling_time)
                             .await;
                     }
 
@@ -176,15 +215,25 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         }
     }
 
-    async fn get_mined_transaction(&self) -> Option<TransactionReceipt> {
-        /*
-        let receipt = self
-            .provider
-            .get_transaction_receipt(*pending_transaction)
-            .await
-            .map_err(|_| Error::TODO)?;
-        */
-        unimplemented!()
+    async fn get_mined_transaction(
+        &self,
+        state: &mut State,
+    ) -> Result<Option<TransactionReceipt>, Error<DB::Error>> {
+        for (i, &hash) in state.pending_transactions.iter().enumerate() {
+            if let Some(receipt) = self
+                .provider
+                .get_transaction_receipt(hash)
+                .await
+                .map_err(|_| Error::TODO)?
+            {
+                if state.pending_transactions.len() > 1 {
+                    state.pending_transactions.swap_remove(i);
+                    state.pending_transactions.insert(0, hash);
+                }
+                return Ok(Some(receipt));
+            }
+        }
+        return Ok(None);
     }
 
     fn should_resend_transaction(&self) -> bool {

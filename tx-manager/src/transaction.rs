@@ -1,6 +1,7 @@
 use ethers::types::{Address, U256};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub priority: Priority,
     pub from: Address,
@@ -10,14 +11,16 @@ pub struct Transaction {
     // pub call_data: Option<Bytes>, // smart contract payload
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub enum Priority {
     Low,
     Normal,
     High,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
     Number(U256),
     // All,
