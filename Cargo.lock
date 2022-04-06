@@ -3090,6 +3090,7 @@ dependencies = [
  "async-trait",
  "ethers 0.6.2",
  "redis",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

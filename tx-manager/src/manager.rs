@@ -113,8 +113,10 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         let transaction = &state.transaction;
 
         // Estimating gas prices.
-        let (max_fee_per_gas, max_priority_fee_per_gas) =
-            self.gas_pricer.estimate_eip1559_fees(transaction.priority);
+        let (max_fee_per_gas, max_priority_fee_per_gas) = self
+            .gas_pricer
+            .estimate_eip1559_fees(transaction.priority)
+            .await;
 
         // Creating the transaction request.
         let mut request = Eip1559TransactionRequest {
