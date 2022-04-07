@@ -13,7 +13,9 @@ use ethers::types::{
 use tokio::time::sleep;
 
 use crate::database::Database;
-use crate::{gas_pricer::GasPricer, transaction::Transaction};
+use crate::gas_oracle;
+use crate::gas_oracle::GasOracle;
+use crate::transaction::Transaction;
 
 #[derive(Debug)]
 pub enum Error<DatabaseError> {
@@ -22,6 +24,7 @@ pub enum Error<DatabaseError> {
     CouldNotUpdateTransactionState(DatabaseError),
     CouldNotGetTransactionState(DatabaseError),
     CouldNotClearTransaction(DatabaseError, TransactionReceipt),
+    GasOracleError(gas_oracle::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +36,7 @@ pub struct State {
 
 pub struct Manager<P: JsonRpcClient, DB: Database> {
     provider: Provider<P>,
-    gas_pricer: GasPricer,
+    gas_oracle: GasOracle,
     db: DB,
     polling_time: Duration,
     block_time: Duration,
@@ -46,12 +49,12 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
      */
     pub async fn new(
         provider: Provider<P>,
-        gas_pricer: GasPricer,
+        gas_oracle: GasOracle,
         db: DB,
     ) -> Result<Self, Error<DB::Error>> {
         let manager = Manager {
             provider,
-            gas_pricer,
+            gas_oracle,
             db,
             polling_time: Duration::from_secs(60),
             block_time: Duration::from_secs(10),
@@ -113,10 +116,13 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         let transaction = &state.transaction;
 
         // Estimating gas prices.
-        let (max_fee_per_gas, max_priority_fee_per_gas) = self
-            .gas_pricer
+        let gas_info = self
+            .gas_oracle
             .estimate_eip1559_fees(transaction.priority)
-            .await;
+            .await
+            .map_err(Error::GasOracleError)?;
+        let max_fee_per_gas = U256::from(gas_info.gas_price);
+        let max_priority_fee_per_gas = self.get_max_priority_fee_per_gas();
 
         // Creating the transaction request.
         let mut request = Eip1559TransactionRequest {
@@ -241,6 +247,10 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
     fn should_resend_transaction(&self) -> bool {
         // check for the average mining time
         unimplemented!()
+    }
+
+    fn get_max_priority_fee_per_gas(&self) -> U256 {
+        todo!();
     }
 
     async fn get_nonce(
