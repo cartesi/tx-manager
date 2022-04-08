@@ -1,20 +1,14 @@
+use async_trait::async_trait;
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use thiserror::Error;
+use tracing::{debug, error};
 
 use crate::transaction::Priority;
 
-use tracing::error;
-
-#[derive(Debug, Clone, Copy)]
-pub enum Error {
-    HTTPGet,
-    StatusNotOk,
-    ResponseToJSON,
-}
-
-#[derive(Debug)]
-pub struct GasOracle {
-    pub api_key: String,
+#[async_trait]
+pub trait GasOracle {
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error>;
 }
 
 #[derive(Debug)]
@@ -24,55 +18,47 @@ pub struct GasInfo {
     pub block_time: i32, // seconds
 }
 
-fn log_err<E: std::fmt::Debug>(lib_err: Error, inner_err: E) -> Error {
-    error!("{:?} {:#?}", lib_err, inner_err);
-    return lib_err;
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("request error: {0}")]
+    Request(#[from] reqwest::Error),
+
+    #[error("invalid status code {0}")]
+    StatusNotOk(reqwest::StatusCode),
+
+    #[error("could not parse the response to JSON: {0}")]
+    Decode(#[from] serde_json::error::Error),
 }
 
-impl GasOracle {
+// Implementation using the ETH Gas Station API.
+
+#[derive(Debug)]
+pub struct ETHGasStationOracle {
+    pub api_key: String,
+}
+
+#[async_trait]
+impl GasOracle for ETHGasStationOracle {
     #[tracing::instrument]
-    pub async fn estimate_eip1559_fees(
-        &self,
-        priority: Priority,
-    ) -> Result<GasInfo, Error> {
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
         );
 
-        let response = reqwest::get(url)
-            .await
-            .map_err(|err| log_err(Error::HTTPGet, err))?;
-
-        if response.status() != StatusCode::OK {
-            return Err(log_err(
-                Error::StatusNotOk,
-                format!("status code: {:?}", response.status()),
-            ));
+        let res = reqwest::get(url).await?;
+        if res.status() != StatusCode::OK {
+            return Err(Error::StatusNotOk(res.status()));
         }
 
-        let response = response
-            .json::<ETHGasStationResponse>()
-            .await
-            .map_err(|err| log_err(Error::ResponseToJSON, err))?;
-
-        // TODO: create response_to_gasinfo function
-        let block_time = response.block_time;
-        let (gas_price, wait_time) = match priority {
-            Priority::Low => (response.low, response.low_time),
-            Priority::Normal => (response.average, response.average_time),
-            Priority::High => (response.fastest, response.fastest_time),
-        };
-
-        return Ok(GasInfo {
-            gas_price,
-            wait_time: (wait_time * 60.) as i32,
-            block_time: (block_time * 60.) as i32,
-        });
+        let response = serde_json::from_slice(&res.bytes().await?)?;
+        let gas_info = (response, priority).into();
+        debug!("gas info: {:?}", gas_info);
+        return Ok(gas_info);
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ETHGasStationResponse {
     block_time: f32,
     fastest: i32,
@@ -88,4 +74,21 @@ struct ETHGasStationResponse {
     average_time: f32,
     #[serde(rename = "safeLowWait")]
     low_time: f32,
+}
+
+impl From<(ETHGasStationResponse, Priority)> for GasInfo {
+    fn from((response, priority): (ETHGasStationResponse, Priority)) -> Self {
+        let (gas_price, wait_time) = match priority {
+            Priority::Low => (response.low, response.low_time),
+            Priority::Normal => (response.average, response.average_time),
+            Priority::High => (response.fast, response.fast_time),
+            Priority::ASAP => (response.fastest, response.fastest_time),
+        };
+
+        return GasInfo {
+            gas_price,
+            wait_time: (wait_time * 60.) as i32,
+            block_time: (response.block_time * 60.) as i32,
+        };
+    }
 }

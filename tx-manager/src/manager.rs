@@ -1,6 +1,8 @@
 use async_recursion::async_recursion;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::time::sleep;
 
 use ethers::providers::{JsonRpcClient, Middleware, Provider};
 use ethers::types::transaction::eip2718::TypedTransaction;
@@ -10,21 +12,19 @@ use ethers::types::{
     TransactionReceipt, H256, U256,
 };
 
-use tokio::time::sleep;
-
 use crate::database::Database;
 use crate::gas_oracle;
-use crate::gas_oracle::GasOracle;
-use crate::transaction::Transaction;
+use crate::gas_oracle::{GasInfo, GasOracle};
+use crate::transaction::{Priority, Transaction};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error<DatabaseError> {
     TODO,
     CouldNotSetTransaction(DatabaseError),
     CouldNotUpdateTransactionState(DatabaseError),
     CouldNotGetTransactionState(DatabaseError),
     CouldNotClearTransaction(DatabaseError, TransactionReceipt),
-    GasOracleError(gas_oracle::Error),
+    GasOracle(#[from] gas_oracle::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,22 +34,22 @@ pub struct State {
     pending_transactions: Vec<H256>, // hashes
 }
 
-pub struct Manager<P: JsonRpcClient, DB: Database> {
+pub struct Manager<P: JsonRpcClient, Oracle: GasOracle, DB: Database> {
     provider: Provider<P>,
-    gas_oracle: GasOracle,
+    gas_oracle: Oracle,
     db: DB,
     polling_time: Duration,
     block_time: Duration,
 }
 
-impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
+impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
     /*
      * Sends and confirms any pending transaction persisted in the database
      * before returning an instance of the transaction manager.
      */
     pub async fn new(
         provider: Provider<P>,
-        gas_oracle: GasOracle,
+        gas_oracle: Oracle,
         db: DB,
     ) -> Result<Self, Error<DB::Error>> {
         let manager = Manager {
@@ -107,6 +107,15 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         return Ok(receipt);
     }
 
+    async fn gas_info(
+        &self,
+        priority: Priority,
+    ) -> Result<GasInfo, Error<DB::Error>> {
+        let gas_info = self.gas_oracle.gas_info(priority).await?;
+        // TODO: retry and fallback to the node if the gas_oracle fails
+        return Ok(gas_info);
+    }
+
     #[async_recursion(?Send)]
     async fn submit_transaction(
         &self,
@@ -116,11 +125,7 @@ impl<P: JsonRpcClient, DB: Database> Manager<P, DB> {
         let transaction = &state.transaction;
 
         // Estimating gas prices.
-        let gas_info = self
-            .gas_oracle
-            .estimate_eip1559_fees(transaction.priority)
-            .await
-            .map_err(Error::GasOracleError)?;
+        let gas_info = self.gas_info(transaction.priority).await?;
         let max_fee_per_gas = U256::from(gas_info.gas_price);
         let max_priority_fee_per_gas = self.get_max_priority_fee_per_gas();
 
