@@ -1,14 +1,14 @@
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use thiserror::Error;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::transaction::Priority;
 
 #[async_trait]
 pub trait GasOracle {
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error>;
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo>;
 }
 
 #[derive(Debug)]
@@ -16,18 +16,6 @@ pub struct GasInfo {
     pub gas_price: i32,  // 10 * gwei
     pub wait_time: i32,  // seconds
     pub block_time: i32, // seconds
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("request error: {0}")]
-    Request(#[from] reqwest::Error),
-
-    #[error("invalid status code {0}")]
-    StatusNotOk(reqwest::StatusCode),
-
-    #[error("could not parse the response to JSON: {0}")]
-    Decode(#[from] serde_json::error::Error),
 }
 
 // Implementation using the ETH Gas Station API.
@@ -40,7 +28,7 @@ pub struct ETHGasStationOracle {
 #[async_trait]
 impl GasOracle for ETHGasStationOracle {
     #[tracing::instrument]
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error> {
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
@@ -48,7 +36,7 @@ impl GasOracle for ETHGasStationOracle {
 
         let res = reqwest::get(url).await?;
         if res.status() != StatusCode::OK {
-            return Err(Error::StatusNotOk(res.status()));
+            bail!("invalid status code: {}", res.status());
         }
 
         let response = serde_json::from_slice(&res.bytes().await?)?;

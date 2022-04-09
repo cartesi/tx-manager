@@ -3078,6 +3078,7 @@ dependencies = [
 name = "tx-manager"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "async-recursion",
  "async-trait",
  "ethers 0.6.2",

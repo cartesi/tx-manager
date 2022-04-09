@@ -1,7 +1,7 @@
+use anyhow::Error;
 use async_recursion::async_recursion;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tokio::time::sleep;
 
 use ethers::providers::{JsonRpcClient, Middleware, Provider};
@@ -13,18 +13,25 @@ use ethers::types::{
 };
 
 use crate::database::Database;
-use crate::gas_oracle;
 use crate::gas_oracle::{GasInfo, GasOracle};
 use crate::transaction::{Priority, Transaction};
 
-#[derive(Debug, Error)]
-pub enum Error<DatabaseError> {
+#[derive(Debug, thiserror::Error)]
+pub enum ManagerError {
+    #[error("todo remove")]
     TODO,
-    CouldNotSetTransaction(DatabaseError),
-    CouldNotUpdateTransactionState(DatabaseError),
-    CouldNotGetTransactionState(DatabaseError),
-    CouldNotClearTransaction(DatabaseError, TransactionReceipt),
-    GasOracle(#[from] gas_oracle::Error),
+
+    #[error("set state: {0}")]
+    SetState(Error),
+
+    #[error("get state: {0}")]
+    GetState(Error),
+
+    #[error("clear state: {0}")]
+    ClearState(Error, TransactionReceipt),
+
+    #[error("gas oracle: {0}")]
+    GasOracle(Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,16 +49,16 @@ pub struct Manager<P: JsonRpcClient, Oracle: GasOracle, DB: Database> {
     block_time: Duration,
 }
 
-impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
+impl<P: JsonRpcClient, GO: GasOracle, DB: Database> Manager<P, GO, DB> {
     /*
      * Sends and confirms any pending transaction persisted in the database
      * before returning an instance of the transaction manager.
      */
     pub async fn new(
         provider: Provider<P>,
-        gas_oracle: Oracle,
+        gas_oracle: GO,
         db: DB,
-    ) -> Result<Self, Error<DB::Error>> {
+    ) -> Result<Self, ManagerError> {
         let manager = Manager {
             provider,
             gas_oracle,
@@ -65,7 +72,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             .db
             .get_state()
             .await
-            .map_err(Error::CouldNotGetTransactionState)?
+            .map_err(ManagerError::GetState)?
         {
             manager
                 .confirm_transaction(&mut state, manager.polling_time, false)
@@ -79,7 +86,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
         &mut self,
         transaction: Transaction,
         polling_time: Option<Duration>,
-    ) -> Result<TransactionReceipt, Error<DB::Error>> {
+    ) -> Result<TransactionReceipt, ManagerError> {
         let mut state = State {
             nonce: None,
             transaction,
@@ -90,7 +97,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
         self.db
             .set_state(&state)
             .await
-            .map_err(Error::CouldNotSetTransaction)?;
+            .map_err(ManagerError::SetState)?;
 
         let receipt = self
             .submit_transaction(
@@ -100,9 +107,10 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             .await?;
 
         // Clearing information about the transaction in the database.
-        self.db.clear_state().await.map_err(|err| {
-            Error::CouldNotClearTransaction(err, receipt.clone())
-        })?;
+        self.db
+            .clear_state()
+            .await
+            .map_err(|err| ManagerError::ClearState(err, receipt.clone()))?;
 
         return Ok(receipt);
     }
@@ -110,8 +118,12 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
     async fn gas_info(
         &self,
         priority: Priority,
-    ) -> Result<GasInfo, Error<DB::Error>> {
-        let gas_info = self.gas_oracle.gas_info(priority).await?;
+    ) -> Result<GasInfo, ManagerError> {
+        let gas_info = self
+            .gas_oracle
+            .gas_info(priority)
+            .await
+            .map_err(ManagerError::GasOracle)?;
         // TODO: retry and fallback to the node if the gas_oracle fails
         return Ok(gas_info);
     }
@@ -121,7 +133,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
         &self,
         state: &mut State,
         polling_time: Duration,
-    ) -> Result<TransactionReceipt, Error<DB::Error>> {
+    ) -> Result<TransactionReceipt, ManagerError> {
         let transaction = &state.transaction;
 
         // Estimating gas prices.
@@ -134,7 +146,12 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             from: Some(transaction.from),
             to: Some(NameOrAddress::Address(transaction.to)),
             gas: None,
-            value: Some(transaction.value.try_into().map_err(|_| Error::TODO)?),
+            value: Some(
+                transaction
+                    .value
+                    .try_into()
+                    .map_err(|_| ManagerError::TODO)?,
+            ),
             data: None,
             nonce: Some(
                 state
@@ -151,7 +168,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             self.provider
                 .estimate_gas(&TypedTransaction::Eip1559(request.clone()))
                 .await
-                .map_err(|_| Error::TODO)?,
+                .map_err(|_| ManagerError::TODO)?,
         );
 
         // Sending the transaction.
@@ -159,14 +176,14 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             .provider
             .send_transaction(request, None)
             .await
-            .map_err(|_| Error::TODO)?;
+            .map_err(|_| ManagerError::TODO)?;
 
         // Updating the transaction manager state.
         state.pending_transactions.insert(0, *pending_transaction);
         self.db
             .set_state(state)
             .await
-            .map_err(Error::CouldNotUpdateTransactionState)?;
+            .map_err(ManagerError::SetState)?;
 
         // Confirming the transaction
         return self.confirm_transaction(state, polling_time, true).await;
@@ -177,7 +194,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
         state: &mut State,
         polling_time: Duration,
         sleep_first: bool,
-    ) -> Result<TransactionReceipt, Error<DB::Error>> {
+    ) -> Result<TransactionReceipt, ManagerError> {
         let mut sleep_time = if sleep_first {
             polling_time
         } else {
@@ -192,7 +209,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
             let receipt = self
                 .get_mined_transaction(state)
                 .await
-                .map_err(|_| Error::TODO)?;
+                .map_err(|_| ManagerError::TODO)?;
 
             match receipt {
                 Some(receipt) => {
@@ -202,7 +219,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
                         .provider
                         .get_block_number()
                         .await
-                        .map_err(|_| Error::TODO)?
+                        .map_err(|_| ManagerError::TODO)?
                         .as_usize();
 
                     // Are there enough confirmations?
@@ -231,13 +248,13 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
     async fn get_mined_transaction(
         &self,
         state: &mut State,
-    ) -> Result<Option<TransactionReceipt>, Error<DB::Error>> {
+    ) -> Result<Option<TransactionReceipt>, ManagerError> {
         for (i, &hash) in state.pending_transactions.iter().enumerate() {
             if let Some(receipt) = self
                 .provider
                 .get_transaction_receipt(hash)
                 .await
-                .map_err(|_| Error::TODO)?
+                .map_err(|_| ManagerError::TODO)?
             {
                 if state.pending_transactions.len() > 1 {
                     state.pending_transactions.swap_remove(i);
@@ -258,10 +275,7 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
         todo!();
     }
 
-    async fn get_nonce(
-        &self,
-        address: Address,
-    ) -> Result<U256, Error<DB::Error>> {
+    async fn get_nonce(&self, address: Address) -> Result<U256, ManagerError> {
         return self
             .provider
             .get_transaction_count(
@@ -269,6 +283,6 @@ impl<P: JsonRpcClient, Oracle: GasOracle, DB: Database> Manager<P, Oracle, DB> {
                 Some(BlockId::Number(BlockNumber::Pending)),
             )
             .await
-            .map_err(|_| Error::TODO);
+            .map_err(|_| ManagerError::TODO);
     }
 }
