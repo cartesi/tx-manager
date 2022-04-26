@@ -34,11 +34,11 @@ pub enum ManagerError {
     GasOracle(Error),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
-    nonce: Option<U256>,
-    transaction: Transaction,
-    pending_transactions: Vec<H256>, // hashes
+    pub nonce: Option<U256>,
+    pub transaction: Transaction,
+    pub pending_transactions: Vec<H256>, // hashes
 }
 
 pub struct Manager<P: JsonRpcClient, Oracle: GasOracle, DB: Database> {

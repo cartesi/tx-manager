@@ -18,21 +18,25 @@ pub trait Database {
 // Implementation using the file system.
 
 pub struct FileSystemDatabase {
-    path: String,
+    path: &'static str,
+}
+
+pub fn new_file_system_database(path: &'static str) -> FileSystemDatabase {
+    return FileSystemDatabase { path };
 }
 
 #[async_trait]
 impl Database for FileSystemDatabase {
     async fn set_state(&self, state: &State) -> Result<()> {
-        let mut file = fs::File::create(self.path.clone()).await?;
-        let s = serde_json::to_string(state)?;
+        let mut file = fs::File::create(self.path).await?;
+        let s = serde_json::to_string_pretty(state)?;
         file.write_all(s.as_bytes()).await?;
-        file.sync_data().await?; // TODO
+        file.sync_all().await?;
         return Ok(());
     }
 
     async fn get_state(&self) -> Result<Option<State>> {
-        let file = fs::File::open(self.path.clone()).await;
+        let file = fs::File::open(self.path).await;
         return match file {
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
             Err(err) => bail!(err),
@@ -46,6 +50,6 @@ impl Database for FileSystemDatabase {
     }
 
     async fn clear_state(&self) -> Result<()> {
-        return Ok(fs::remove_file(self.path.clone()).await?);
+        return Ok(fs::remove_file(self.path).await?);
     }
 }
