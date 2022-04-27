@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::info;
 
 use crate::transaction::Priority;
 
@@ -22,7 +22,13 @@ pub struct GasInfo {
 
 #[derive(Debug)]
 pub struct ETHGasStationOracle {
-    pub api_key: String,
+    api_key: &'static str,
+}
+
+pub fn new_eth_gas_station_oracle(
+    api_key: &'static str,
+) -> ETHGasStationOracle {
+    return ETHGasStationOracle { api_key };
 }
 
 #[async_trait]
@@ -41,7 +47,7 @@ impl GasOracle for ETHGasStationOracle {
 
         let response = serde_json::from_slice(&res.bytes().await?)?;
         let gas_info = (response, priority).into();
-        debug!("gas info: {:?}", gas_info);
+        info!("gas info: {:?}", gas_info);
         return Ok(gas_info);
     }
 }
