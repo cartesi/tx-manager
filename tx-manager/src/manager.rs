@@ -34,7 +34,7 @@ pub enum ManagerError {
     GasOracle(Error),
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
     pub nonce: Option<U256>,
     pub transaction: Transaction,

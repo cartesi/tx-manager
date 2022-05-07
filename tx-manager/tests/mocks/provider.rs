@@ -1,18 +1,29 @@
 use async_trait::async_trait;
-use ethers::providers::{FromErr, JsonRpcClient, Middleware, ProviderError};
+use ethers::providers::{FromErr, Middleware, PendingTransaction};
 use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{U256, U64};
-use serde::{de::DeserializeOwned, Serialize};
+use ethers::types::{
+    BlockId, NameOrAddress, TransactionReceipt, TxHash, U256, U64,
+};
+use std::marker::PhantomData;
+
+// Middleware mock.
 
 #[derive(Debug)]
 pub struct Provider<M: Middleware> {
-    inner: M,
+    inner: PhantomData<M>,
+}
+
+impl<M: Middleware> Provider<M> {
+    pub fn new() -> Self {
+        return Self { inner: PhantomData };
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderOutput<M: Middleware> {
-    #[error("todo: {0}")]
+    #[error("provider mock output: inner error -- {0}")]
     InnerError(M::Error),
+    // TODO
 }
 
 impl<M: Middleware> FromErr<M::Error> for ProviderOutput<M> {
@@ -28,11 +39,7 @@ impl<M: Middleware> Middleware for Provider<M> {
     type Inner = M;
 
     fn inner(&self) -> &M {
-        return &self.inner;
-    }
-
-    async fn get_block_number(&self) -> Result<U64, Self::Error> {
-        todo!();
+        unreachable!()
     }
 
     async fn estimate_gas(
@@ -41,31 +48,31 @@ impl<M: Middleware> Middleware for Provider<M> {
     ) -> Result<U256, Self::Error> {
         todo!();
     }
-}
 
-// Mock JSON RPC Client.
-
-#[derive(Debug, thiserror::Error)]
-enum JsonRpcClientError {}
-
-impl From<JsonRpcClientError> for ProviderError {
-    fn from(err: JsonRpcClientError) -> Self {
-        ProviderError::JsonRpcClientError(Box::new(err))
-    }
-}
-
-#[derive(Debug)]
-struct MockJsonRpcClient {}
-
-#[async_trait]
-impl JsonRpcClient for MockJsonRpcClient {
-    type Error = JsonRpcClientError;
-
-    async fn request<T: Serialize + Send + Sync, R: DeserializeOwned>(
+    async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
         &self,
-        _: &str,
-        _: T,
-    ) -> Result<R, JsonRpcClientError> {
-        unreachable!()
+        tx: T,
+        block: Option<BlockId>,
+    ) -> Result<PendingTransaction<'_, M::Provider>, Self::Error> {
+        todo!();
+    }
+
+    async fn get_block_number(&self) -> Result<U64, Self::Error> {
+        todo!();
+    }
+
+    async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
+        &self,
+        transaction_hash: T,
+    ) -> Result<Option<TransactionReceipt>, Self::Error> {
+        todo!();
+    }
+
+    async fn get_transaction_count<T: Into<NameOrAddress> + Send + Sync>(
+        &self,
+        from: T,
+        block: Option<BlockId>,
+    ) -> Result<U256, Self::Error> {
+        todo!();
     }
 }

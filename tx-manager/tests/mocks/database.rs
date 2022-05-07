@@ -33,18 +33,22 @@ pub struct Database {
 
 #[async_trait]
 impl tx_manager::database::Database for Database {
-    async fn set_state(&self, state: &State) -> Result<()> {
+    async fn set_state(&self, _: &State) -> Result<()> {
         match self.output {
             DatabaseOutput::SetStateOk => Ok(()),
-            DatabaseOutput::SetStateError => bail!(self.output),
+            DatabaseOutput::SetStateError => {
+                bail!(DatabaseOutput::SetStateError)
+            }
             _ => bail!(DatabaseOutput::Unreachable),
         }
     }
 
     async fn get_state(&self) -> Result<Option<State>> {
-        match self.output {
-            DatabaseOutput::GetStateOk(state) => Ok(state),
-            DatabaseOutput::GetStateError => bail!(self.output),
+        match &self.output {
+            DatabaseOutput::GetStateOk(state) => Ok(state.clone()),
+            DatabaseOutput::GetStateError => {
+                bail!(DatabaseOutput::GetStateError)
+            }
             _ => bail!(DatabaseOutput::Unreachable),
         }
     }
@@ -52,7 +56,9 @@ impl tx_manager::database::Database for Database {
     async fn clear_state(&self) -> Result<()> {
         match self.output {
             DatabaseOutput::ClearStateOk => Ok(()),
-            DatabaseOutput::ClearStateError => bail!(self.output),
+            DatabaseOutput::ClearStateError => {
+                bail!(DatabaseOutput::ClearStateError)
+            }
             _ => bail!(DatabaseOutput::Unreachable),
         }
     }

@@ -1,12 +1,14 @@
 mod mocks;
 
+use ethers::providers::{Http, Provider};
+
 use tx_manager::manager::Manager;
 
 use mocks::{DatabaseOutput, GasOracleOutput};
 
 #[tokio::test]
 async fn test_manager() {
-    let provider = mocks::Provider {};
+    let provider = mocks::Provider::<Provider<Http>>::new();
     let gas_oracle = mocks::GasOracle {
         output: GasOracleOutput::Unreachable,
     };

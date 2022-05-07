@@ -11,7 +11,7 @@ pub trait GasOracle {
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct GasInfo {
     pub gas_price: i32,  // 10 * gwei
     pub wait_time: i32,  // seconds

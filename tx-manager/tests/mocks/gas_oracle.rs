@@ -22,10 +22,12 @@ pub struct GasOracle {
 
 #[async_trait]
 impl tx_manager::gas_oracle::GasOracle for GasOracle {
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo> {
+    async fn gas_info(&self, _: Priority) -> Result<GasInfo> {
         match self.output {
             GasOracleOutput::GasInfoOk(gas_info) => Ok(gas_info),
-            GasOracleOutput::GasInfoError => bail!(self.output),
+            GasOracleOutput::GasInfoError => {
+                bail!(GasOracleOutput::GasInfoError)
+            }
             _ => bail!(GasOracleOutput::Unreachable),
         }
     }

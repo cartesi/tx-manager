@@ -1,7 +1,7 @@
 use ethers::types::{Address, U256};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub priority: Priority,
     pub from: Address,
