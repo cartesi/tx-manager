@@ -4,7 +4,7 @@ use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-use ethers::providers::{JsonRpcClient, Middleware, Provider};
+use ethers::providers::Middleware;
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
@@ -41,21 +41,21 @@ pub struct State {
     pub pending_transactions: Vec<H256>, // hashes
 }
 
-pub struct Manager<P: JsonRpcClient, Oracle: GasOracle, DB: Database> {
-    provider: Provider<P>,
-    gas_oracle: Oracle,
+pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
+    provider: M,
+    gas_oracle: GO,
     db: DB,
     polling_time: Duration,
     block_time: Duration,
 }
 
-impl<P: JsonRpcClient, GO: GasOracle, DB: Database> Manager<P, GO, DB> {
+impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     /*
      * Sends and confirms any pending transaction persisted in the database
      * before returning an instance of the transaction manager.
      */
     pub async fn new(
-        provider: Provider<P>,
+        provider: M,
         gas_oracle: GO,
         db: DB,
     ) -> Result<Self, ManagerError> {
