@@ -44,15 +44,15 @@ impl<M: Middleware> Middleware for Provider<M> {
 
     async fn estimate_gas(
         &self,
-        tx: &TypedTransaction,
+        _: &TypedTransaction,
     ) -> Result<U256, Self::Error> {
         todo!();
     }
 
     async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
         &self,
-        tx: T,
-        block: Option<BlockId>,
+        _: T,
+        _: Option<BlockId>,
     ) -> Result<PendingTransaction<'_, M::Provider>, Self::Error> {
         todo!();
     }
@@ -63,15 +63,16 @@ impl<M: Middleware> Middleware for Provider<M> {
 
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
         &self,
-        transaction_hash: T,
+        _: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
-        todo!();
+        // todo!();
+        Ok(Some(TransactionReceipt::default()))
     }
 
     async fn get_transaction_count<T: Into<NameOrAddress> + Send + Sync>(
         &self,
-        from: T,
-        block: Option<BlockId>,
+        _: T,
+        _: Option<BlockId>,
     ) -> Result<U256, Self::Error> {
         todo!();
     }

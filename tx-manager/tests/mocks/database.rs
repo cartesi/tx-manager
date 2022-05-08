@@ -4,62 +4,62 @@ use async_trait::async_trait;
 use tx_manager::manager::State;
 
 #[derive(Debug, thiserror::Error)]
-pub enum DatabaseOutput {
-    #[error("database mock output: set state ok")]
-    SetStateOk,
-
-    #[error("database mock output: get state ok -- {0:?}")]
-    GetStateOk(Option<State>),
-
-    #[error("database mock output: clear state ok")]
-    ClearStateOk,
-
-    #[error("database mock output: set state error")]
+pub enum DatabaseError {
+    #[error("database mock error: set state error")]
     SetStateError,
 
-    #[error("database mock output: get state error")]
+    #[error("database mock error: get state error")]
     GetStateError,
 
-    #[error("database mock output: clear state error")]
+    #[error("database mock error: clear state error")]
     ClearStateError,
-
-    #[error("database mock output: unreachable error")]
-    Unreachable,
 }
 
 pub struct Database {
-    pub output: DatabaseOutput,
+    pub set_state: bool,
+    pub get_state: (bool, Option<State>),
+    pub clear_state: bool,
+}
+
+impl Database {
+    pub fn new() -> Self {
+        Self {
+            set_state: false,
+            get_state: (false, None),
+            clear_state: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.set_state = false;
+        self.get_state = (false, None);
+        self.clear_state = false;
+    }
 }
 
 #[async_trait]
 impl tx_manager::database::Database for Database {
     async fn set_state(&self, _: &State) -> Result<()> {
-        match self.output {
-            DatabaseOutput::SetStateOk => Ok(()),
-            DatabaseOutput::SetStateError => {
-                bail!(DatabaseOutput::SetStateError)
-            }
-            _ => bail!(DatabaseOutput::Unreachable),
+        if self.set_state {
+            Ok(())
+        } else {
+            bail!(DatabaseError::SetStateError)
         }
     }
 
     async fn get_state(&self) -> Result<Option<State>> {
-        match &self.output {
-            DatabaseOutput::GetStateOk(state) => Ok(state.clone()),
-            DatabaseOutput::GetStateError => {
-                bail!(DatabaseOutput::GetStateError)
-            }
-            _ => bail!(DatabaseOutput::Unreachable),
+        if self.get_state.0 {
+            Ok(self.get_state.1.clone())
+        } else {
+            bail!(DatabaseError::GetStateError)
         }
     }
 
     async fn clear_state(&self) -> Result<()> {
-        match self.output {
-            DatabaseOutput::ClearStateOk => Ok(()),
-            DatabaseOutput::ClearStateError => {
-                bail!(DatabaseOutput::ClearStateError)
-            }
-            _ => bail!(DatabaseOutput::Unreachable),
+        if self.clear_state {
+            Ok(())
+        } else {
+            bail!(DatabaseError::ClearStateError)
         }
     }
 }
