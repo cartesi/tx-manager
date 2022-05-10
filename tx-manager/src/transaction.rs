@@ -7,7 +7,7 @@ pub struct Transaction {
     pub from: Address,
     pub to: Address,
     pub value: Value,
-    pub confirmations: usize,
+    pub confirmations: u32,
     // pub call_data: Option<Bytes>, // smart contract payload
 }
 

@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
+use core::time::Duration;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::info;
@@ -13,9 +14,9 @@ pub trait GasOracle {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GasInfo {
-    pub gas_price: i32,  // 10 * gwei
-    pub wait_time: i32,  // seconds
-    pub block_time: i32, // seconds
+    pub gas_price: i32, // 10 * gwei
+    pub mining_time: Option<Duration>,
+    pub block_time: Option<Duration>,
 }
 
 // Implementation using the ETH Gas Station API.
@@ -25,10 +26,10 @@ pub struct ETHGasStationOracle {
     api_key: &'static str,
 }
 
-pub fn new_eth_gas_station_oracle(
-    api_key: &'static str,
-) -> ETHGasStationOracle {
-    return ETHGasStationOracle { api_key };
+impl ETHGasStationOracle {
+    pub fn new(api_key: &'static str) -> ETHGasStationOracle {
+        return ETHGasStationOracle { api_key };
+    }
 }
 
 #[async_trait]
@@ -72,7 +73,7 @@ struct ETHGasStationResponse {
 
 impl From<(ETHGasStationResponse, Priority)> for GasInfo {
     fn from((response, priority): (ETHGasStationResponse, Priority)) -> Self {
-        let (gas_price, wait_time) = match priority {
+        let (gas_price, mining_time) = match priority {
             Priority::Low => (response.low, response.low_time),
             Priority::Normal => (response.average, response.average_time),
             Priority::High => (response.fast, response.fast_time),
@@ -81,26 +82,28 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
 
         return GasInfo {
             gas_price,
-            wait_time: (wait_time * 60.) as i32,
-            block_time: (response.block_time * 60.) as i32,
+            mining_time: Some(Duration::from_secs((mining_time * 60.) as u64)),
+            block_time: Some(Duration::from_secs(
+                (response.block_time * 60.) as u64,
+            )),
         };
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::gas_oracle::{new_eth_gas_station_oracle, GasOracle};
+    use crate::gas_oracle::{ETHGasStationOracle, GasOracle};
     use crate::transaction::Priority;
 
     #[tokio::test]
     async fn test_eth_gas_station_oracle() {
         // setup
         tracing_subscriber::fmt::init();
-        let gas_oracle = new_eth_gas_station_oracle(
+        let gas_oracle = ETHGasStationOracle::new(
             "c5396ceb50a0c347dba8de605f47ffc8e9fd347495b57da6a2d537f78848",
         );
-        let invalid_gas_oracle1 = new_eth_gas_station_oracle("invalid");
-        let invalid_gas_oracle2 = new_eth_gas_station_oracle("");
+        let invalid_gas_oracle1 = ETHGasStationOracle::new("invalid");
+        let invalid_gas_oracle2 = ETHGasStationOracle::new("");
 
         // ok => priority low
         let result = gas_oracle.gas_info(Priority::Low).await;

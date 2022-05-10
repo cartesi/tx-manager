@@ -4,6 +4,7 @@ use ethers::providers::Provider as EthersProvider;
 use ethers::providers::{Http, PendingTransaction};
 use ethers::types::{H256, U256};
 use std::ptr;
+use std::time::Duration;
 
 use tx_manager::manager::{Manager, State};
 use tx_manager::transaction::{Priority, Transaction, Value};
@@ -43,7 +44,9 @@ async fn test_manager() {
         };
         let db_ptr = ptr::addr_of_mut!(db);
         (*db_ptr).get_state = (true, Some(state));
-        let manager = Manager::new(provider, gas_oracle, db).await;
+        let one_sec = Duration::from_secs(1);
+        let manager =
+            Manager::new_(provider, gas_oracle, db, one_sec, one_sec).await;
         assert!(manager.is_ok());
     }
 

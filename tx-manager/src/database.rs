@@ -21,8 +21,10 @@ pub struct FileSystemDatabase {
     path: &'static str,
 }
 
-pub fn new_file_system_database(path: &'static str) -> FileSystemDatabase {
-    return FileSystemDatabase { path };
+impl FileSystemDatabase {
+    pub fn new(path: &'static str) -> FileSystemDatabase {
+        return FileSystemDatabase { path };
+    }
 }
 
 #[async_trait]
@@ -62,7 +64,7 @@ mod test {
     use std::fs::File;
     use std::path::Path;
 
-    use crate::database::{new_file_system_database, Database};
+    use crate::database::{Database, FileSystemDatabase};
     use crate::manager::State;
     use crate::transaction::{Priority, Transaction, Value};
 
@@ -71,7 +73,7 @@ mod test {
         // setup
         let path_str = "./set_database.json";
         let path = Path::new(path_str);
-        let database = new_file_system_database(path_str);
+        let database = FileSystemDatabase::new(path_str);
         let _ = database.clear_state().await;
 
         // ok => set state over empty state
@@ -117,7 +119,7 @@ mod test {
         // setup
         let path_str = "./get_database.json";
         let path = Path::new(path_str);
-        let database = new_file_system_database(path_str);
+        let database = FileSystemDatabase::new(path_str);
         let _ = database.clear_state().await;
 
         // ok => get empty state
@@ -161,13 +163,13 @@ mod test {
 
         // ok => clearing the state
         assert!(path.is_file());
-        let result = new_file_system_database(path_str).clear_state().await;
+        let result = FileSystemDatabase::new(path_str).clear_state().await;
         assert!(result.is_ok());
         assert!(!path.is_file());
 
         // error => cannot clear an empty state
         assert!(!path.is_file());
-        let result = new_file_system_database(path_str).clear_state().await;
+        let result = FileSystemDatabase::new(path_str).clear_state().await;
         assert!(result.is_err(), "{:?}", result.err());
         assert!(!path.is_file());
     }
