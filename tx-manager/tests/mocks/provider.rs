@@ -2,25 +2,28 @@ use async_trait::async_trait;
 use ethers::providers::{FromErr, Middleware, PendingTransaction};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    BlockId, NameOrAddress, TransactionReceipt, TxHash, U256, U64,
+    BlockId, Bloom, NameOrAddress, TransactionReceipt, TxHash, H256, U256, U64,
 };
 use std::marker::PhantomData;
-use std::ptr;
+use std::str::FromStr;
+
+// Global state used to simulate requests to the blockchain.
+
+static mut NONCE: u32 = 1;
+static mut BLOCK_NUMBER: u32 = 10;
+static mut TRANSACTION_HASH: H256 =
+    h256("0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d");
 
 // Middleware mock.
 
 #[derive(Debug)]
 pub struct Provider<M: Middleware> {
     inner: PhantomData<M>,
-    block_number: u32,
 }
 
 impl<M: Middleware> Provider<M> {
     pub fn new() -> Self {
-        return Self {
-            inner: PhantomData,
-            block_number: 10,
-        };
+        return Self { inner: PhantomData };
     }
 }
 
@@ -51,7 +54,7 @@ impl<M: Middleware> Middleware for Provider<M> {
         &self,
         _: &TypedTransaction,
     ) -> Result<U256, Self::Error> {
-        todo!();
+        Ok(u256(21000))
     }
 
     async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
@@ -59,39 +62,41 @@ impl<M: Middleware> Middleware for Provider<M> {
         _: T,
         _: Option<BlockId>,
     ) -> Result<PendingTransaction<'_, M::Provider>, Self::Error> {
-        todo!();
+        unsafe {
+            Ok(PendingTransaction::new(TRANSACTION_HASH, self.provider()))
+        }
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
-        let self_ptr = ptr::addr_of!(self) as *mut Self;
-        let block = U64::from_dec_str(&self.block_number.to_string()).unwrap();
         unsafe {
-            // TODO: I think this is undefined behavior
-            (*self_ptr).block_number = self.block_number + 1;
+            let block = u64(BLOCK_NUMBER);
+            BLOCK_NUMBER += 1;
+            Ok(block)
         }
-        Ok(block)
     }
 
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
         &self,
         _: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
-        let receipt_str = r#"{
-            "transactionHash": "0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d",
-            "transactionIndex": "0xd",
-            "blockHash": "0x55ae43d3511e327dc532855510d110676d340aa1bbba369b4b98896d86559586",
-            "blockNumber": "0xa3d322",
-            "cumulativeGasUsed": "0x207a5b",
-            "gasUsed": "0x6a40",
-            "contractAddress": null,
-            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "logs": [],
-            "type": "0x2",
-            "effectiveGasPrice": "0x3b9aca07"
-        }"#;
-        let mut receipt: TransactionReceipt =
-            serde_json::from_str(receipt_str).unwrap();
-        receipt.block_number = U64::from_dec_str("10").ok();
+        let transaction_hash = "0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d";
+        let block_hash = "0x55ae43d3511e327dc532855510d110676d340aa1bbba369b4b98896d86559586";
+
+        let receipt = TransactionReceipt {
+            transaction_hash: h256(transaction_hash),
+            transaction_index: u64(13),
+            block_hash: Some(h256(block_hash)),
+            block_number: Some(u64(10736418)),
+            cumulative_gas_used: u256(2000000),
+            gas_used: Some(u256(30000)),
+            contract_address: None,
+            logs: vec![],
+            status: Some(u64(1)),
+            root: None, // TODO
+            logs_bloom: Bloom::zero(),
+            transaction_type: Some(u64(1)),
+            effective_gas_price: Some(u256(1000000000)),
+        };
         Ok(Some(receipt))
     }
 
@@ -100,6 +105,18 @@ impl<M: Middleware> Middleware for Provider<M> {
         _: T,
         _: Option<BlockId>,
     ) -> Result<U256, Self::Error> {
-        todo!();
+        unsafe { Ok(u256(NONCE)) }
     }
+}
+
+fn u64(n: u32) -> U64 {
+    U64::from_dec_str(&n.to_string()).unwrap()
+}
+
+fn u256(n: u32) -> U256 {
+    U256::from_dec_str(&n.to_string()).unwrap()
+}
+
+fn h256(s: &str) -> H256 {
+    H256::from_str(s).unwrap()
 }

@@ -1,7 +1,7 @@
 mod mocks;
 
+use ethers::providers::Http;
 use ethers::providers::Provider as EthersProvider;
-use ethers::providers::{Http, PendingTransaction};
 use ethers::types::{H256, U256};
 use std::ptr;
 use std::time::Duration;
@@ -21,7 +21,7 @@ async fn test_manager() {
         to: "0xCEA70F3EbE1CCf3aaaf44A3a6CE5C257E5E67b24"
             .parse()
             .unwrap(),
-        value: Value::Number(u256("5")),
+        value: Value::Number(u256(5)),
         confirmations: 1,
     };
 
@@ -38,7 +38,7 @@ async fn test_manager() {
     unsafe {
         let (provider, gas_oracle, mut db) = setup();
         let state = State {
-            nonce: Some(u256("5")),
+            nonce: Some(u256(5)),
             transaction: transaction1,
             pending_transactions: vec![H256::random()],
         };
@@ -80,8 +80,8 @@ async fn test_manager() {
         */
 }
 
-fn u256(s: &str) -> U256 {
-    U256::from_dec_str(s).unwrap()
+fn u256(n: u32) -> U256 {
+    U256::from(n)
 }
 
 fn setup() -> (Provider<EthersProvider<Http>>, GasOracle, Database) {

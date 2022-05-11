@@ -6,11 +6,11 @@ use tokio::time::sleep;
 
 use ethers::providers::Middleware;
 use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
     Address, BlockId, BlockNumber, Eip1559TransactionRequest, NameOrAddress,
-    TransactionReceipt, H256, U256,
+    TransactionReceipt, TxHash, H160, H256, U256, U64,
 };
+use ethers::utils::keccak256;
 
 use crate::database::Database;
 use crate::gas_oracle::{GasInfo, GasOracle};
@@ -88,6 +88,11 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                     false,
                 )
                 .await?;
+            manager
+                .db
+                .clear_state()
+                .await
+                .map_err(|err| ManagerError::ClearState(err, todo!()))?;
         }
 
         Ok(manager)
@@ -144,11 +149,10 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     ) -> Result<TransactionReceipt, ManagerError> {
         let transaction = &state.transaction;
 
-        // Estimating gas prices.
+        // Estimating gas prices and sleep times.
         let gas_info = self.gas_info(transaction.priority).await?;
         let max_fee_per_gas = U256::from(gas_info.gas_price);
         let max_priority_fee_per_gas = self.get_max_priority_fee_per_gas();
-
         if let Some(block_time) = gas_info.block_time {
             self.block_time = block_time;
         }
@@ -156,52 +160,45 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .wait_time(state.transaction.confirmations, gas_info.mining_time);
 
         // Creating the transaction request.
-        let mut request = Eip1559TransactionRequest {
-            from: Some(transaction.from),
-            to: Some(NameOrAddress::Address(transaction.to)),
-            gas: None,
-            value: Some(
-                transaction
-                    .value
-                    .try_into()
-                    .map_err(|_| ManagerError::TODO)?,
-            ),
-            data: None,
-            nonce: Some(
-                state
-                    .nonce
-                    .unwrap_or(self.get_nonce(transaction.from).await?),
-            ),
-            access_list: AccessList::default(),
-            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
-            max_fee_per_gas: Some(max_fee_per_gas),
-        };
+        let nonce = state
+            .nonce
+            .unwrap_or(self.get_nonce(transaction.from).await?);
+        let mut request: Eip1559TransactionRequest = transaction
+            .to_eip_1559_transaction_request(
+                nonce,
+                max_priority_fee_per_gas,
+                max_fee_per_gas,
+            );
 
         // Estimating the gas limit of the transaction.
+        let typed_transaction = &TypedTransaction::Eip1559(request.clone());
         request.gas = Some(
             self.provider
-                .estimate_gas(&TypedTransaction::Eip1559(request.clone()))
+                .estimate_gas(typed_transaction)
                 .await
                 .map_err(|_| ManagerError::TODO)?,
         );
 
         let start_time: Instant;
         {
+            // Updating the transaction manager state.
+            let transaction_hash =
+                self.transaction_hash(&typed_transaction, &request).await?;
+            state.pending_transactions.insert(0, transaction_hash);
+            self.db
+                .set_state(state)
+                .await
+                .map_err(ManagerError::SetState)?;
+
             // Sending the transaction.
             let pending_transaction = self
                 .provider
                 .send_transaction(request, None)
                 .await
                 .map_err(|_| ManagerError::TODO)?;
+            assert_eq!(transaction_hash, *pending_transaction);
 
             start_time = Instant::now();
-
-            // Updating the transaction manager state.
-            state.pending_transactions.insert(0, *pending_transaction);
-            self.db
-                .set_state(state)
-                .await
-                .map_err(ManagerError::SetState)?;
         }
 
         // Confirming the transaction.
@@ -339,5 +336,21 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let mining_time = mining_time.unwrap_or(Duration::from_secs(200));
         let confirmation_time = confirmations * self.block_time;
         mining_time + confirmation_time
+    }
+
+    // Computes the transaction hash.
+    async fn transaction_hash(
+        &self,
+        typed_transaction: &TypedTransaction,
+        request: &Eip1559TransactionRequest,
+    ) -> Result<TxHash, ManagerError> {
+        let signature = self
+            .provider
+            .sign_transaction(typed_transaction, H160::zero())
+            .await
+            .map_err(|_| ManagerError::TODO)?;
+        let chain_id = U64::from(1); // TODO
+        let bytes = request.rlp_signed(chain_id, &signature);
+        Ok(TxHash(keccak256(bytes)))
     }
 }
