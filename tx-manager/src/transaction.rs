@@ -1,8 +1,5 @@
 use ethers::types::transaction::eip2930::AccessList;
-use ethers::types::{
-    Address, Eip1559TransactionRequest, NameOrAddress, H256, U256, U64,
-};
-use ethers::utils;
+use ethers::types::{Address, Eip1559TransactionRequest, NameOrAddress, U256};
 use serde::{Deserialize, Serialize};
 
 #[derive(

@@ -20,10 +20,6 @@ impl GasOracle {
             gas_info: (false, None),
         }
     }
-
-    pub fn reset(&mut self) {
-        self.gas_info = (false, None);
-    }
 }
 
 #[async_trait]

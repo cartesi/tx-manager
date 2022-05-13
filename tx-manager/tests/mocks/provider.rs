@@ -7,36 +7,76 @@ use ethers::types::{
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-// Global state used to simulate requests to the blockchain.
+// Global state used to simulate the blockchain.
 
-static mut NONCE: u32 = 1;
-static mut BLOCK_NUMBER: u32 = 10;
-static mut TRANSACTION_HASH: H256 =
-    h256("0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d");
+pub struct ProviderState {
+    pub nonce: u32,
+    pub block_number: u32,
+    pub sent_transactions: Vec<TxHash>,
+}
+
+static mut STATE: ProviderState = setup_state();
+
+const fn setup_state() -> ProviderState {
+    ProviderState {
+        nonce: 1,
+        block_number: 10,
+        sent_transactions: Vec::new(),
+    }
+}
 
 // Middleware mock.
 
 #[derive(Debug)]
 pub struct Provider<M: Middleware> {
-    inner: PhantomData<M>,
+    pub inner: PhantomData<M>,
+    pub estimate_gas: Option<U256>,
+    pub send_transaction: Option<&'static str>,
+    pub get_block_number: Option<()>,
+    pub get_transaction_receipt: Option<()>,
+    pub get_transaction_count: Option<()>,
 }
 
 impl<M: Middleware> Provider<M> {
     pub fn new() -> Self {
-        return Self { inner: PhantomData };
+        unsafe {
+            STATE = setup_state();
+        }
+        Self {
+            inner: PhantomData,
+            estimate_gas: None,
+            send_transaction: None,
+            get_block_number: None,
+            get_transaction_receipt: None,
+            get_transaction_count: None,
+        }
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError<M: Middleware> {
-    #[error("provider mock error: inner error -- {0}")]
-    InnerError(M::Error),
-    // TODO
+    #[error("provider mock error: inner -- {0}")]
+    Inner(M::Error),
+
+    #[error("provider mock error: estimate gas")]
+    EstimateGas,
+
+    #[error("provider mock error: send transaction")]
+    SendTransaction,
+
+    #[error("provider mock error: get block number")]
+    GetBlockNumber,
+
+    #[error("provider mock error: get transaction receipt")]
+    GetTransactionReceipt,
+
+    #[error("provider mock error: get transaction count")]
+    GetTransactionCount,
 }
 
 impl<M: Middleware> FromErr<M::Error> for ProviderError<M> {
     fn from(src: M::Error) -> ProviderError<M> {
-        ProviderError::InnerError(src)
+        ProviderError::Inner(src)
     }
 }
 
@@ -54,7 +94,7 @@ impl<M: Middleware> Middleware for Provider<M> {
         &self,
         _: &TypedTransaction,
     ) -> Result<U256, Self::Error> {
-        Ok(u256(21000))
+        self.estimate_gas.ok_or(ProviderError::EstimateGas)
     }
 
     async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
@@ -62,15 +102,22 @@ impl<M: Middleware> Middleware for Provider<M> {
         _: T,
         _: Option<BlockId>,
     ) -> Result<PendingTransaction<'_, M::Provider>, Self::Error> {
+        let hash = self
+            .send_transaction
+            .ok_or(ProviderError::SendTransaction)?;
+        let pending_transaction =
+            PendingTransaction::new(h256(hash), self.provider());
         unsafe {
-            Ok(PendingTransaction::new(TRANSACTION_HASH, self.provider()))
+            STATE.sent_transactions.push(*pending_transaction);
         }
+        Ok(pending_transaction)
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
+        self.get_block_number.ok_or(ProviderError::GetBlockNumber)?;
         unsafe {
-            let block = u64(BLOCK_NUMBER);
-            BLOCK_NUMBER += 1;
+            let block = u64(STATE.block_number);
+            STATE.block_number += 1;
             Ok(block)
         }
     }
@@ -79,6 +126,9 @@ impl<M: Middleware> Middleware for Provider<M> {
         &self,
         _: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
+        self.get_transaction_receipt
+            .ok_or(ProviderError::GetTransactionReceipt)?;
+
         let transaction_hash = "0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d";
         let block_hash = "0x55ae43d3511e327dc532855510d110676d340aa1bbba369b4b98896d86559586";
 
@@ -105,7 +155,9 @@ impl<M: Middleware> Middleware for Provider<M> {
         _: T,
         _: Option<BlockId>,
     ) -> Result<U256, Self::Error> {
-        unsafe { Ok(u256(NONCE)) }
+        self.get_transaction_count
+            .ok_or(ProviderError::GetTransactionCount)?;
+        unsafe { Ok(u256(STATE.nonce)) }
     }
 }
 

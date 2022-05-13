@@ -36,11 +36,12 @@ pub enum ManagerError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
-    pub nonce: Option<U256>,
+    pub nonce: Option<U256>, // TODO: is this necessary?
     pub transaction: Transaction,
     pub pending_transactions: Vec<H256>, // hashes
 }
 
+// TODO: Arc Middleware?
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
     provider: M,
     gas_oracle: GO,
@@ -79,7 +80,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         {
             let wait_time =
                 manager.wait_time(state.transaction.confirmations, None);
-            manager
+            let transaction_receipt = manager
                 .confirm_transaction(
                     &mut state,
                     None,
@@ -88,11 +89,9 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                     false,
                 )
                 .await?;
-            manager
-                .db
-                .clear_state()
-                .await
-                .map_err(|err| ManagerError::ClearState(err, todo!()))?;
+            manager.db.clear_state().await.map_err(|err| {
+                ManagerError::ClearState(err, transaction_receipt)
+            })?;
         }
 
         Ok(manager)
