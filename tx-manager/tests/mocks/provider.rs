@@ -29,7 +29,7 @@ const fn setup_state() -> ProviderState {
 
 #[derive(Debug)]
 pub struct Provider<M: Middleware> {
-    pub inner: PhantomData<M>,
+    inner: PhantomData<M>,
     pub estimate_gas: Option<U256>,
     pub send_transaction: Option<&'static str>,
     pub get_block_number: Option<()>,
@@ -49,6 +49,12 @@ impl<M: Middleware> Provider<M> {
             get_block_number: None,
             get_transaction_receipt: None,
             get_transaction_count: None,
+        }
+    }
+
+    pub fn setup_state() {
+        unsafe {
+            STATE = setup_state();
         }
     }
 }
@@ -136,7 +142,7 @@ impl<M: Middleware> Middleware for Provider<M> {
             transaction_hash: h256(transaction_hash),
             transaction_index: u64(13),
             block_hash: Some(h256(block_hash)),
-            block_number: Some(u64(10736418)),
+            block_number: Some(u64(9)),
             cumulative_gas_used: u256(2000000),
             gas_used: Some(u256(30000)),
             contract_address: None,

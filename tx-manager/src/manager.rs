@@ -62,7 +62,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         db: DB,
         mining_time: Duration,
         block_time: Duration,
-    ) -> Result<Self, ManagerError> {
+    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
         let mut manager = Manager {
             provider,
             gas_oracle,
@@ -70,9 +70,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             mining_time,
             block_time,
         };
-
-        // Checking for pending transactions.
-        if let Some(mut state) = manager
+        let transaction_receipt = if let Some(mut state) = manager
             .db
             .get_state()
             .await
@@ -90,18 +88,21 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 )
                 .await?;
             manager.db.clear_state().await.map_err(|err| {
-                ManagerError::ClearState(err, transaction_receipt)
+                ManagerError::ClearState(err, transaction_receipt.clone())
             })?;
-        }
+            Some(transaction_receipt)
+        } else {
+            None
+        };
 
-        Ok(manager)
+        Ok((manager, transaction_receipt))
     }
 
     pub async fn new(
         provider: M,
         gas_oracle: GO,
         db: DB,
-    ) -> Result<Self, ManagerError> {
+    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
         Self::new_(
             provider,
             gas_oracle,
@@ -127,7 +128,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         self.db
             .set_state(&state)
             .await
-            .map_err(ManagerError::SetState)?;
+            .map_err(|_| ManagerError::TODO)?; // TODO: test error here!
 
         let receipt = self.submit_transaction(&mut state, polling_time).await?;
 
@@ -224,7 +225,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let mut sleep_time = if sleep_first {
             polling_time
         } else {
-            Duration::from_secs(0)
+            Duration::ZERO
         };
 
         loop {
