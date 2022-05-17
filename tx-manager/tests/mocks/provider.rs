@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use ethers::providers::{FromErr, Middleware, PendingTransaction};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    BlockId, Bloom, NameOrAddress, TransactionReceipt, TxHash, H256, U256, U64,
+    Block, BlockId, Bloom, NameOrAddress, TransactionReceipt, TxHash, H256,
+    U256, U64,
 };
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -33,6 +34,7 @@ pub struct Provider<M: Middleware> {
     pub estimate_gas: Option<U256>,
     pub send_transaction: Option<&'static str>,
     pub get_block_number: Option<()>,
+    pub get_block: Option<()>,
     pub get_transaction_receipt: Option<()>,
     pub get_transaction_count: Option<()>,
 }
@@ -47,6 +49,7 @@ impl<M: Middleware> Provider<M> {
             estimate_gas: None,
             send_transaction: None,
             get_block_number: None,
+            get_block: None,
             get_transaction_receipt: None,
             get_transaction_count: None,
         }
@@ -72,6 +75,9 @@ pub enum ProviderError<M: Middleware> {
 
     #[error("provider mock error: get block number")]
     GetBlockNumber,
+
+    #[error("provider mock error: get block")]
+    GetBlock,
 
     #[error("provider mock error: get transaction receipt")]
     GetTransactionReceipt,
@@ -126,6 +132,38 @@ impl<M: Middleware> Middleware for Provider<M> {
             STATE.block_number += 1;
             Ok(block)
         }
+    }
+
+    async fn get_block<T: Into<BlockId> + Send + Sync>(
+        &self,
+        _: T,
+    ) -> Result<Option<Block<TxHash>>, Self::Error> {
+        let mut block = Block::<TxHash>::default();
+        block.base_fee_per_gas = Some(u256(250));
+        match self.get_block {
+            None => Err(ProviderError::GetBlock),
+            Some(_) => Ok(Some(block)),
+        }
+        /*
+            hash: Option<H256>,
+            parent_hash: H256,
+            author: Address,
+            state_root: H256,
+            transactions_root: H256,
+            receipts_root: H256,
+            number: Option<U64>,
+            gas_used: U256,
+            extra_data: Bytes,
+            logs_bloom: Option<Bloom>,
+            timestamp: U256,
+            total_difficulty: Option<U256>,
+            seal_fields: Vec<Bytes>,
+            transactions: Vec<TX>,
+            size: Option<U256>,
+            base_fee_per_gas: Option<U256>,
+            randomness: Randomness,
+            epoch_snark_data: Option<EpochSnarkData>,
+        */
     }
 
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(

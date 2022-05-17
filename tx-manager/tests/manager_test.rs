@@ -4,16 +4,33 @@ use anyhow::anyhow;
 use ethers::providers::Http;
 use ethers::providers::Provider as EthersProvider;
 use ethers::types::U256;
-use std::fmt::Display;
-use std::ptr::addr_of_mut;
 use std::time::Duration;
 
+use tx_manager::gas_oracle::GasInfo;
 use tx_manager::manager::{Manager, ManagerError, State};
 use tx_manager::transaction::{Priority, Transaction, Value};
 
 use mocks::{Data, Database, DatabaseError, GasOracle, Provider};
 
 // TODO: gas : 21000
+
+macro_rules! assert_ok(
+    ($result: expr) => {
+        match $result {
+            Ok(..) => {},
+            Err(err) => panic!("expected Ok, got Err({:?})", err),
+        }
+    };
+);
+
+macro_rules! assert_err(
+    ($result: expr, $expected: expr) => {
+        match $result {
+            Ok(..) => panic!("expected Err({:?}), got Ok(..)", $expected),
+            Err(err) => assert_eq!(err.to_string(), $expected.to_string()),
+        }
+    };
+);
 
 #[tokio::test]
 async fn test_manager_new() {
@@ -32,7 +49,7 @@ async fn test_manager_new() {
         let (provider, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = Some(None);
         let result = Manager::new(provider, gas_oracle, db).await;
-        assert_ok(&result);
+        assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         assert_eq!(transaction_receipt, None);
     }
@@ -45,7 +62,7 @@ async fn test_manager_new() {
         let result = Manager::new(provider, gas_oracle, db).await;
         let expected_err =
             ManagerError::GetState(anyhow!(DatabaseError::GetState));
-        assert_err(&result, expected_err);
+        assert_err!(result, expected_err);
     }
 
     // Instantiating a new transaction manager that has one pending transaction.
@@ -63,7 +80,7 @@ async fn test_manager_new() {
         let zero_sec = Duration::from_secs(0);
         let result =
             Manager::new_(provider, gas_oracle, db, zero_sec, zero_sec).await;
-        assert_ok(&result);
+        assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         transaction_receipt.unwrap()
     };
@@ -87,7 +104,7 @@ async fn test_manager_new() {
             anyhow!(DatabaseError::ClearState),
             transaction_receipt1,
         );
-        assert_err(&result, expected_err);
+        assert_err!(result, expected_err);
     }
 }
 
@@ -103,20 +120,25 @@ async fn test_manager_send_transaction() {
         confirmations: 1,
     };
 
+    let gas_info1 = GasInfo {
+        gas_price: 300,
+        mining_time: Some(Duration::ZERO),
+        block_time: Some(Duration::ZERO),
+    };
+
     // Ok.
-    unsafe {
+    {
         let (mut provider, mut gas_oracle, mut db) = setup_dependencies();
-        let (provider_ptr, gas_oracle_ptr, db_ptr) = (
-            addr_of_mut!(provider),
-            addr_of_mut!(gas_oracle),
-            addr_of_mut!(db),
-        );
+        provider.get_block_number = Some(());
+        provider.get_block = Some(());
+        gas_oracle.gas_info_output = Some(gas_info1);
+        db.set_state_output = Some(());
+        db.clear_state_output = Some(());
         let mut manager = setup_manager(provider, gas_oracle, db).await;
-        (*db_ptr).set_state_output = Some(());
         let result = manager
             .send_transaction(transaction1, Some(Duration::ZERO))
             .await;
-        assert_ok(&result);
+        assert_ok!(result);
     }
 }
 
@@ -141,23 +163,10 @@ async fn setup_manager(
     let result =
         Manager::new_(provider, gas_oracle, db, Duration::ZERO, Duration::ZERO)
             .await;
-    assert_ok(&result);
+    assert_ok!(result);
     let (manager, transaction_receipt) = result.unwrap();
     assert_eq!(transaction_receipt, None);
     manager
-}
-
-fn assert_ok<T, E: Display>(output: &Result<T, E>) {
-    let _ = output
-        .as_ref()
-        .map_err(|err| panic!("expected ok, got error: {}", err));
-}
-
-fn assert_err<T>(output: &Result<T, ManagerError>, expected: ManagerError) {
-    match output {
-        Ok(_) => panic!("expected error: {}", expected),
-        Err(err) => assert_eq!(err.to_string(), expected.to_string()),
-    }
 }
 
 fn u256(n: u32) -> U256 {

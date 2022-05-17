@@ -1,4 +1,3 @@
-use anyhow::Error;
 use async_recursion::async_recursion;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -21,17 +20,20 @@ pub enum ManagerError {
     #[error("todo remove")]
     TODO,
 
+    #[error("manager: {0}")]
+    Error(String),
+
     #[error("set state: {0}")]
-    SetState(Error),
+    SetState(anyhow::Error),
 
     #[error("get state: {0}")]
-    GetState(Error),
+    GetState(anyhow::Error),
 
     #[error("clear state: {0}")]
-    ClearState(Error, TransactionReceipt),
+    ClearState(anyhow::Error, TransactionReceipt),
 
     #[error("gas oracle: {0}")]
-    GasOracle(Error),
+    GasOracle(anyhow::Error),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,7 +43,6 @@ pub struct State {
     pub pending_transactions: Vec<H256>, // hashes
 }
 
-// TODO: Arc Middleware?
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
     provider: M,
     gas_oracle: GO,
@@ -55,7 +56,21 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
      * Sends and confirms any pending transaction persisted in the database
      * before returning an instance of the transaction manager.
      */
-    // TODO: naming
+    pub async fn new(
+        provider: M,
+        gas_oracle: GO,
+        db: DB,
+    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
+        Self::new_(
+            provider,
+            gas_oracle,
+            db,
+            Duration::from_secs(60),
+            Duration::from_secs(20),
+        )
+        .await
+    }
+
     pub async fn new_(
         provider: M,
         gas_oracle: GO,
@@ -98,21 +113,6 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         Ok((manager, transaction_receipt))
     }
 
-    pub async fn new(
-        provider: M,
-        gas_oracle: GO,
-        db: DB,
-    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
-        Self::new_(
-            provider,
-            gas_oracle,
-            db,
-            Duration::from_secs(60),
-            Duration::from_secs(20),
-        )
-        .await
-    }
-
     pub async fn send_transaction(
         &mut self,
         transaction: Transaction,
@@ -128,9 +128,9 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         self.db
             .set_state(&state)
             .await
-            .map_err(|_| ManagerError::TODO)?; // TODO: test error here!
+            .map_err(ManagerError::SetState)?;
 
-        let receipt = self.submit_transaction(&mut state, polling_time).await?;
+        let receipt = self.send_transaction_(&mut state, polling_time).await?;
 
         // Clearing information about the transaction in the database.
         self.db
@@ -141,8 +141,12 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         Ok(receipt)
     }
 
+    fn to_err(err: M::Error) -> ManagerError {
+        ManagerError::Error(format!("{}", err.to_string()))
+    }
+
     #[async_recursion(?Send)]
-    async fn submit_transaction(
+    async fn send_transaction_(
         &mut self,
         state: &mut State,
         polling_time: Option<Duration>,
@@ -151,8 +155,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         // Estimating gas prices and sleep times.
         let gas_info = self.gas_info(transaction.priority).await?;
-        let max_fee_per_gas = U256::from(gas_info.gas_price);
-        let max_priority_fee_per_gas = self.get_max_priority_fee_per_gas();
+        let max_fee = U256::from(gas_info.gas_price);
+        let max_priority_fee = self.get_max_priority_fee(max_fee).await?;
         if let Some(block_time) = gas_info.block_time {
             self.block_time = block_time;
         }
@@ -164,11 +168,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .nonce
             .unwrap_or(self.get_nonce(transaction.from).await?);
         let mut request: Eip1559TransactionRequest = transaction
-            .to_eip_1559_transaction_request(
-                nonce,
-                max_priority_fee_per_gas,
-                max_fee_per_gas,
-            );
+            .to_eip_1559_transaction_request(nonce, max_priority_fee, max_fee);
 
         // Estimating the gas limit of the transaction.
         let typed_transaction = &TypedTransaction::Eip1559(request.clone());
@@ -176,7 +176,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             self.provider
                 .estimate_gas(typed_transaction)
                 .await
-                .map_err(|_| ManagerError::TODO)?,
+                .map_err(Self::to_err)?,
         );
 
         let start_time: Instant;
@@ -195,22 +195,21 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 .provider
                 .send_transaction(request, None)
                 .await
-                .map_err(|_| ManagerError::TODO)?;
+                .map_err(Self::to_err)?;
             assert_eq!(transaction_hash, *pending_transaction);
 
             start_time = Instant::now();
         }
 
         // Confirming the transaction.
-        return self
-            .confirm_transaction(
-                state,
-                polling_time,
-                wait_time,
-                start_time,
-                true,
-            )
-            .await;
+        self.confirm_transaction(
+            state,
+            polling_time,
+            wait_time,
+            start_time,
+            true,
+        )
+        .await
     }
 
     async fn confirm_transaction(
@@ -233,10 +232,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             sleep(sleep_time).await;
 
             // Were any of the transactions mined?
-            let receipt = self
-                .get_mined_transaction(state)
-                .await
-                .map_err(|_| ManagerError::TODO)?;
+            let receipt = self.get_mined_transaction(state).await?;
 
             match receipt {
                 Some(receipt) => {
@@ -246,7 +242,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                         .provider
                         .get_block_number()
                         .await
-                        .map_err(|_| ManagerError::TODO)?
+                        .map_err(Self::to_err)?
                         .as_usize();
 
                     // Are there enough confirmations?
@@ -261,7 +257,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                     // Have I waited too much?
                     if self.should_resend_transaction(start_time, wait_time) {
                         return self
-                            .submit_transaction(state, Some(polling_time))
+                            .send_transaction_(state, Some(polling_time))
                             .await;
                     }
 
@@ -293,7 +289,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 .provider
                 .get_transaction_receipt(hash)
                 .await
-                .map_err(|_| ManagerError::TODO)?
+                .map_err(Self::to_err)?
             {
                 if state.pending_transactions.len() > 1 {
                     state.pending_transactions.swap_remove(i);
@@ -314,8 +310,24 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         elapsed_time > wait_time
     }
 
-    fn get_max_priority_fee_per_gas(&self) -> U256 {
-        todo!();
+    async fn get_max_priority_fee(
+        &self,
+        max_fee: U256,
+    ) -> Result<U256, ManagerError> {
+        let current_block = self
+            .provider
+            .get_block_number()
+            .await
+            .map_err(Self::to_err)?;
+        let base_fee = self
+            .provider
+            .get_block(current_block)
+            .await
+            .map_err(Self::to_err)?
+            .ok_or(ManagerError::Error("ok_or 1".to_string()))?
+            .base_fee_per_gas
+            .ok_or(ManagerError::Error("ok_or 2".to_string()))?;
+        Ok(max_fee - base_fee)
     }
 
     async fn get_nonce(&self, address: Address) -> Result<U256, ManagerError> {

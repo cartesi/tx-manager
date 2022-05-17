@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
 use tx_manager::gas_oracle::GasInfo;
@@ -6,18 +6,18 @@ use tx_manager::transaction::Priority;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GasOracleError {
-    #[error("gas oracle mock output: gas info error")]
-    GasInfoError,
+    #[error("gas oracle mock error: gas info")]
+    GasInfo,
 }
 
 pub struct GasOracle {
-    pub gas_info: (bool, Option<GasInfo>),
+    pub gas_info_output: Option<GasInfo>,
 }
 
 impl GasOracle {
     pub fn new() -> Self {
         Self {
-            gas_info: (false, None),
+            gas_info_output: None,
         }
     }
 }
@@ -25,10 +25,8 @@ impl GasOracle {
 #[async_trait]
 impl tx_manager::gas_oracle::GasOracle for GasOracle {
     async fn gas_info(&self, _: Priority) -> Result<GasInfo> {
-        if self.gas_info.0 {
-            Ok(self.gas_info.1.unwrap())
-        } else {
-            bail!(GasOracleError::GasInfoError)
-        }
+        self.gas_info_output
+            .ok_or(anyhow!(GasOracleError::GasInfo))
+            .map(|x| x.clone())
     }
 }
