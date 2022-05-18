@@ -17,9 +17,6 @@ use crate::transaction::{Priority, Transaction};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagerError {
-    #[error("todo remove")]
-    TODO,
-
     #[error("manager: {0}")]
     Error(String),
 
@@ -337,7 +334,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 Some(BlockId::Number(BlockNumber::Pending)),
             )
             .await
-            .map_err(|_| ManagerError::TODO)
+            .map_err(Self::to_err)
     }
 
     fn wait_time(
@@ -360,7 +357,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .provider
             .sign_transaction(typed_transaction, H160::zero())
             .await
-            .map_err(|_| ManagerError::TODO)?;
+            .map_err(Self::to_err)?;
         let chain_id = U64::from(1); // TODO
         let bytes = request.rlp_signed(chain_id, &signature);
         Ok(TxHash(keccak256(bytes)))

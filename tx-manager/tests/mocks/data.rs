@@ -1,8 +1,9 @@
-use ethers::types::{Address, TxHash};
+use ethers::types::{Address, Signature, TxHash, U256};
 
 pub struct Data {
     pub address: [Address; 4],
     pub transaction_hash: [TxHash; 4],
+    pub signature: [Signature; 4],
 }
 
 impl Data {
@@ -23,9 +24,37 @@ impl Data {
         ]
         .map(|s| s.parse().unwrap());
 
+        let signature = [
+            Signature {
+                r: u256(1),
+                s: u256(1),
+                v: 1,
+            },
+            Signature {
+                r: u256(2),
+                s: u256(2),
+                v: 2,
+            },
+            Signature {
+                r: u256(3),
+                s: u256(3),
+                v: 3,
+            },
+            Signature {
+                r: u256(4),
+                s: u256(4),
+                v: 4,
+            },
+        ];
+
         Data {
             address,
             transaction_hash,
+            signature,
         }
     }
+}
+
+fn u256(n: u32) -> U256 {
+    U256::from_dec_str(&n.to_string()).unwrap()
 }
