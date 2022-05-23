@@ -1,15 +1,15 @@
 use async_recursion::async_recursion;
-use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
-use tokio::time::sleep;
-
 use ethers::providers::Middleware;
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
     Address, BlockId, BlockNumber, Eip1559TransactionRequest, NameOrAddress,
-    TransactionReceipt, TxHash, H160, H256, U256, U64,
+    TransactionReceipt, TxHash, H256, U256, U64,
 };
 use ethers::utils::keccak256;
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
+use tracing::info;
 
 use crate::database::Database;
 use crate::gas_oracle::{GasInfo, GasOracle};
@@ -40,10 +40,12 @@ pub struct State {
     pub pending_transactions: Vec<H256>, // hashes
 }
 
+#[derive(Debug)]
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
     provider: M,
     gas_oracle: GO,
     db: DB,
+    chain_id: U64,
     mining_time: Duration,
     block_time: Duration,
 }
@@ -57,11 +59,13 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         provider: M,
         gas_oracle: GO,
         db: DB,
+        chain_id: U64,
     ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
         Self::new_(
             provider,
             gas_oracle,
             db,
+            chain_id,
             Duration::from_secs(60),
             Duration::from_secs(20),
         )
@@ -72,12 +76,14 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         provider: M,
         gas_oracle: GO,
         db: DB,
+        chain_id: U64,
         mining_time: Duration,
         block_time: Duration,
     ) -> Result<(Self, Option<TransactionReceipt>), ManagerError> {
         let mut manager = Manager {
             provider,
             gas_oracle,
+            chain_id,
             db,
             mining_time,
             block_time,
@@ -168,10 +174,9 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .to_eip_1559_transaction_request(nonce, max_priority_fee, max_fee);
 
         // Estimating the gas limit of the transaction.
-        let typed_transaction = &TypedTransaction::Eip1559(request.clone());
         request.gas = Some(
             self.provider
-                .estimate_gas(typed_transaction)
+                .estimate_gas(&TypedTransaction::Eip1559(request.clone()))
                 .await
                 .map_err(Self::to_err)?,
         );
@@ -179,8 +184,9 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let start_time: Instant;
         {
             // Updating the transaction manager state.
+            let typed_transaction = &TypedTransaction::Eip1559(request.clone());
             let transaction_hash =
-                self.transaction_hash(&typed_transaction, &request).await?;
+                self.transaction_hash(&typed_transaction).await?;
             state.pending_transactions.insert(0, transaction_hash);
             self.db
                 .set_state(state)
@@ -209,6 +215,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         .await
     }
 
+    #[tracing::instrument]
     async fn confirm_transaction(
         &mut self,
         state: &mut State,
@@ -217,6 +224,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         start_time: Instant,
         sleep_first: bool,
     ) -> Result<TransactionReceipt, ManagerError> {
+        info!("OI COMPANHEIRO!!!!");
+
         let polling_time = polling_time.unwrap_or(self.mining_time);
         let mut sleep_time = if sleep_first {
             polling_time
@@ -243,8 +252,10 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                         .as_usize();
 
                     // Are there enough confirmations?
-                    let blocks = (current_block - transaction_block) as u32;
-                    if blocks >= state.transaction.confirmations {
+                    assert!(current_block >= transaction_block);
+                    info!("OI AMIGUINHO!!!!");
+                    let delta = (current_block - transaction_block) as u32;
+                    if delta >= state.transaction.confirmations {
                         return Ok(receipt);
                     }
 
@@ -342,7 +353,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         confirmations: u32,
         mining_time: Option<Duration>,
     ) -> Duration {
-        let mining_time = mining_time.unwrap_or(Duration::from_secs(200));
+        let mining_time = mining_time.unwrap_or(Duration::from_secs(300));
         let confirmation_time = confirmations * self.block_time;
         mining_time + confirmation_time
     }
@@ -351,15 +362,14 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn transaction_hash(
         &self,
         typed_transaction: &TypedTransaction,
-        request: &Eip1559TransactionRequest,
     ) -> Result<TxHash, ManagerError> {
+        let from = *typed_transaction.from().unwrap();
         let signature = self
             .provider
-            .sign_transaction(typed_transaction, H160::zero())
+            .sign_transaction(typed_transaction, from)
             .await
             .map_err(Self::to_err)?;
-        let chain_id = U64::from(1); // TODO
-        let bytes = request.rlp_signed(chain_id, &signature);
+        let bytes = typed_transaction.rlp_signed(self.chain_id, &signature);
         Ok(TxHash(keccak256(bytes)))
     }
 }

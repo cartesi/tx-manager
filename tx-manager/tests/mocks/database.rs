@@ -15,6 +15,7 @@ pub enum DatabaseError {
     ClearState,
 }
 
+#[derive(Debug)]
 pub struct Database {
     pub set_state_output: Option<()>,
     pub get_state_output: Option<Option<State>>,

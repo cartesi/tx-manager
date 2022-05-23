@@ -1,5 +1,6 @@
 use ethers::types::{Address, Signature, TxHash, U256};
 
+#[derive(Debug)]
 pub struct Data {
     pub address: [Address; 4],
     pub transaction_hash: [TxHash; 4],
@@ -7,7 +8,7 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn new() -> Data {
+    pub fn instance() -> Data {
         let address = [
             "0xba763b97851b653aaaf631723bab41a500f03b29",
             "0x29e425df042e83e4ddb3ee3348d6d745c58fce8f",

@@ -3,12 +3,13 @@ use async_trait::async_trait;
 use core::time::Duration;
 use reqwest::StatusCode;
 use serde::Deserialize;
+use std::fmt::Debug;
 use tracing::info;
 
 use crate::transaction::Priority;
 
 #[async_trait]
-pub trait GasOracle {
+pub trait GasOracle: Debug {
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo>;
 }
 

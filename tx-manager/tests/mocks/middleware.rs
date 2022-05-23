@@ -2,68 +2,32 @@ use async_trait::async_trait;
 use ethers::providers::{
     FromErr, Middleware, MockProvider, PendingTransaction, Provider,
 };
+use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
     Address, Block, BlockId, Bloom, NameOrAddress, Signature,
     TransactionReceipt, TxHash, H256, U256, U64,
 };
+use ethers::utils::keccak256;
 use std::str::FromStr;
 
 // Global state used to simulate the blockchain.
 
 pub struct MockMiddlewareState {
     pub nonce: u32,
-    pub block_number: u32,
     pub sent_transactions: Vec<TxHash>,
-}
 
-static mut STATE: MockMiddlewareState = setup_state();
-
-const fn setup_state() -> MockMiddlewareState {
-    MockMiddlewareState {
-        nonce: 1,
-        block_number: 10,
-        sent_transactions: Vec::new(),
-    }
+    // Stores how many times each function was called.
+    pub estimate_gas_n: i32,
+    pub get_block_n: i32,
+    pub get_block_number_n: i32,
+    pub get_transaction_count_n: i32,
+    pub get_transaction_receipt_n: i32,
+    pub send_transaction_n: i32,
+    pub sign_transaction_n: i32,
 }
 
 // Middleware mock.
-
-#[derive(Debug)]
-pub struct MockMiddleware {
-    provider: (Provider<MockProvider>, MockProvider),
-    pub estimate_gas: Option<U256>,
-    pub get_block: Option<()>,
-    pub get_block_number: Option<()>,
-    pub get_transaction_count: Option<()>,
-    pub get_transaction_receipt: Option<()>,
-    pub send_transaction: Option<TxHash>,
-    pub sign_transaction: Option<()>,
-}
-
-impl MockMiddleware {
-    pub fn new() -> Self {
-        unsafe {
-            STATE = setup_state();
-        }
-        Self {
-            provider: Provider::mocked(),
-            estimate_gas: None,
-            get_block: None,
-            get_block_number: None,
-            get_transaction_count: None,
-            get_transaction_receipt: None,
-            send_transaction: None,
-            sign_transaction: None,
-        }
-    }
-
-    pub fn setup_state() {
-        unsafe {
-            STATE = setup_state();
-        }
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum MockMiddlewareError {
@@ -95,6 +59,52 @@ impl FromErr<MockMiddlewareError> for MockMiddlewareError {
     }
 }
 
+pub static mut STATE: MockMiddlewareState = setup_state();
+
+const fn setup_state() -> MockMiddlewareState {
+    MockMiddlewareState {
+        nonce: 1,
+        sent_transactions: Vec::new(),
+        estimate_gas_n: 0,
+        get_block_n: 0,
+        get_block_number_n: 0,
+        get_transaction_count_n: 0,
+        get_transaction_receipt_n: 0,
+        send_transaction_n: 0,
+        sign_transaction_n: 0,
+    }
+}
+
+#[derive(Debug)]
+pub struct MockMiddleware {
+    provider: (Provider<MockProvider>, MockProvider),
+    pub estimate_gas: Option<U256>,
+    pub get_block: Option<()>,
+    pub get_block_number: Option<Vec<u32>>,
+    pub get_transaction_count: Option<()>,
+    pub get_transaction_receipt: Option<()>,
+    pub send_transaction: Option<()>,
+    pub sign_transaction: Option<()>,
+}
+
+impl MockMiddleware {
+    pub fn new() -> Self {
+        unsafe {
+            STATE = setup_state();
+        }
+        Self {
+            provider: Provider::mocked(),
+            estimate_gas: None,
+            get_block: None,
+            get_block_number: None,
+            get_transaction_count: None,
+            get_transaction_receipt: None,
+            send_transaction: None,
+            sign_transaction: None,
+        }
+    }
+}
+
 #[async_trait]
 impl Middleware for MockMiddleware {
     type Error = MockMiddlewareError;
@@ -113,6 +123,9 @@ impl Middleware for MockMiddleware {
         &self,
         _: &TypedTransaction,
     ) -> Result<U256, Self::Error> {
+        unsafe {
+            STATE.estimate_gas_n += 1;
+        }
         self.estimate_gas.ok_or(MockMiddlewareError::EstimateGas)
     }
 
@@ -120,6 +133,9 @@ impl Middleware for MockMiddleware {
         &self,
         _: T,
     ) -> Result<Option<Block<TxHash>>, Self::Error> {
+        unsafe {
+            STATE.get_block_n += 1;
+        }
         let mut block = Block::<TxHash>::default();
         block.base_fee_per_gas = Some(u256(250));
         match self.get_block {
@@ -129,13 +145,15 @@ impl Middleware for MockMiddleware {
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
-        self.get_block_number
-            .ok_or(MockMiddlewareError::GetBlockNumber)?;
+        let i = unsafe { STATE.get_block_number_n as usize };
         unsafe {
-            let block = u64(STATE.block_number);
-            STATE.block_number += 1;
-            Ok(block)
-        }
+            STATE.get_block_number_n += 1;
+        };
+        let current_block = self
+            .get_block_number
+            .as_ref()
+            .ok_or(MockMiddlewareError::GetBlockNumber)?[i];
+        Ok(u64(current_block))
     }
 
     async fn get_transaction_count<T: Into<NameOrAddress> + Send + Sync>(
@@ -143,6 +161,9 @@ impl Middleware for MockMiddleware {
         _: T,
         _: Option<BlockId>,
     ) -> Result<U256, Self::Error> {
+        unsafe {
+            STATE.get_transaction_count_n += 1;
+        }
         self.get_transaction_count
             .ok_or(MockMiddlewareError::GetTransactionCount)?;
         unsafe { Ok(u256(STATE.nonce)) }
@@ -152,6 +173,9 @@ impl Middleware for MockMiddleware {
         &self,
         _: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
+        unsafe {
+            STATE.get_transaction_receipt_n += 1;
+        }
         self.get_transaction_receipt
             .ok_or(MockMiddlewareError::GetTransactionReceipt)?;
 
@@ -162,7 +186,7 @@ impl Middleware for MockMiddleware {
             transaction_hash: h256(transaction_hash),
             transaction_index: u64(13),
             block_hash: Some(h256(block_hash)),
-            block_number: Some(u64(9)),
+            block_number: Some(u64(unsafe { STATE.get_block_number_n as u32 })),
             cumulative_gas_used: u256(2000000),
             gas_used: Some(u256(30000)),
             contract_address: None,
@@ -178,12 +202,20 @@ impl Middleware for MockMiddleware {
 
     async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
         &self,
-        _: T,
+        tx: T,
         _: Option<BlockId>,
     ) -> Result<PendingTransaction<'_, Self::Provider>, Self::Error> {
+        unsafe {
+            STATE.send_transaction_n += 1;
+        }
+        let tx: &TypedTransaction = &tx.into();
+        let signature = self.sign_transaction(tx, *tx.from().unwrap()).await?;
+        let bytes = tx.rlp_signed(U64::from(1), &signature);
         let hash = self
             .send_transaction
+            .map(|_| TxHash(keccak256(bytes)))
             .ok_or(MockMiddlewareError::SendTransaction)?;
+
         let pending_transaction =
             PendingTransaction::new(hash, self.provider());
         unsafe {
@@ -194,16 +226,20 @@ impl Middleware for MockMiddleware {
 
     async fn sign_transaction(
         &self,
-        _: &TypedTransaction,
+        tx: &TypedTransaction,
         _: Address,
     ) -> Result<Signature, Self::Error> {
+        unsafe {
+            STATE.sign_transaction_n += 1;
+        }
+        let signer: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
+        let signature = signer.sign_transaction(tx).await.unwrap();
         self.sign_transaction
             .ok_or(MockMiddlewareError::SignTransaction)
-            .map(|_| Signature {
-                r: u256(1),
-                s: u256(1),
-                v: 1,
-            })
+            .map(|_| signature)
     }
 }
 

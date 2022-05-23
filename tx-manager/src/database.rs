@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
+use std::fmt::Debug;
 use std::io::ErrorKind;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -7,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::manager::State;
 
 #[async_trait]
-pub trait Database {
+pub trait Database: Debug {
     async fn set_state(&self, state: &State) -> Result<()>;
 
     async fn get_state(&self) -> Result<Option<State>>;
@@ -17,6 +18,7 @@ pub trait Database {
 
 // Implementation using the file system.
 
+#[derive(Debug)]
 pub struct FileSystemDatabase {
     path: &'static str,
 }

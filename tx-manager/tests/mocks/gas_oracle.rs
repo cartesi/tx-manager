@@ -10,6 +10,7 @@ pub enum GasOracleError {
     GasInfo,
 }
 
+#[derive(Debug)]
 pub struct GasOracle {
     pub gas_info_output: Option<GasInfo>,
 }

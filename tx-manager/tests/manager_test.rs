@@ -1,14 +1,17 @@
 mod mocks;
 
 use anyhow::anyhow;
-use ethers::types::U256;
+use ethers::types::{U256, U64};
+use serial_test::serial;
 use std::time::Duration;
 
 use tx_manager::gas_oracle::GasInfo;
 use tx_manager::manager::{Manager, ManagerError, State};
 use tx_manager::transaction::{Priority, Transaction, Value};
 
-use mocks::{Data, Database, DatabaseError, GasOracle, MockMiddleware};
+use mocks::{
+    mock_state, Data, Database, DatabaseError, GasOracle, MockMiddleware,
+};
 
 macro_rules! assert_ok(
     ($result: expr) => {
@@ -29,8 +32,10 @@ macro_rules! assert_err(
 );
 
 #[tokio::test]
+#[serial]
 async fn test_manager_new() {
-    let data = Data::new();
+    let data = Data::instance();
+    let chain_id = U64::from(1);
 
     let transaction1 = Transaction {
         priority: Priority::Normal,
@@ -44,7 +49,7 @@ async fn test_manager_new() {
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = Some(None);
-        let result = Manager::new(middleware, gas_oracle, db).await;
+        let result = Manager::new(middleware, gas_oracle, db, chain_id).await;
         assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         assert_eq!(transaction_receipt, None);
@@ -55,7 +60,7 @@ async fn test_manager_new() {
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = None;
-        let result = Manager::new(middleware, gas_oracle, db).await;
+        let result = Manager::new(middleware, gas_oracle, db, chain_id).await;
         let expected_err =
             ManagerError::GetState(anyhow!(DatabaseError::GetState));
         assert_err!(result, expected_err);
@@ -65,7 +70,7 @@ async fn test_manager_new() {
     // The pending transaction's hash is transaction_hash[0].
     let transaction_receipt1 = {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
-        middleware.get_block_number = Some(());
+        middleware.get_block_number = Some(vec![1]);
         middleware.get_transaction_receipt = Some(());
         db.get_state_output = Some(Some(State {
             nonce: Some(u256(1)),
@@ -74,8 +79,10 @@ async fn test_manager_new() {
         }));
         db.clear_state_output = Some(());
         let zero_sec = Duration::from_secs(0);
-        let result =
-            Manager::new_(middleware, gas_oracle, db, zero_sec, zero_sec).await;
+        let result = Manager::new_(
+            middleware, gas_oracle, db, chain_id, zero_sec, zero_sec,
+        )
+        .await;
         assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         transaction_receipt.unwrap()
@@ -86,7 +93,7 @@ async fn test_manager_new() {
     // The pending transaction's hash is transaction_hash[0].
     {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
-        middleware.get_block_number = Some(());
+        middleware.get_block_number = Some(vec![1]);
         middleware.get_transaction_receipt = Some(());
         db.get_state_output = Some(Some(State {
             nonce: Some(u256(1)),
@@ -94,8 +101,10 @@ async fn test_manager_new() {
             pending_transactions: vec![data.transaction_hash[0]],
         }));
         let one_sec = Duration::from_secs(1);
-        let result =
-            Manager::new_(middleware, gas_oracle, db, one_sec, one_sec).await;
+        let result = Manager::new_(
+            middleware, gas_oracle, db, chain_id, one_sec, one_sec,
+        )
+        .await;
         let expected_err = ManagerError::ClearState(
             anyhow!(DatabaseError::ClearState),
             transaction_receipt1,
@@ -105,8 +114,11 @@ async fn test_manager_new() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_manager_send_transaction() {
-    let data = Data::new();
+    tracing_subscriber::fmt::init();
+
+    let data = Data::instance();
 
     let transaction1 = Transaction {
         priority: Priority::Normal,
@@ -127,9 +139,10 @@ async fn test_manager_send_transaction() {
         let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
         middleware.estimate_gas = Some(u256(21000));
         middleware.get_block = Some(());
-        middleware.get_block_number = Some(());
+        middleware.get_block_number = Some(vec![0, 1]);
         middleware.get_transaction_count = Some(());
-        middleware.send_transaction = Some(data.transaction_hash[0]);
+        middleware.get_transaction_receipt = Some(());
+        middleware.send_transaction = Some(());
         middleware.sign_transaction = Some(());
         gas_oracle.gas_info_output = Some(gas_info1);
         db.set_state_output = Some(());
@@ -139,13 +152,22 @@ async fn test_manager_send_transaction() {
             .send_transaction(transaction1, Some(Duration::ZERO))
             .await;
         assert_ok!(result);
+
+        unsafe {
+            assert_eq!(mock_state.estimate_gas_n, 1);
+            assert_eq!(mock_state.get_block_n, 1);
+            assert_eq!(mock_state.get_block_number_n, 2);
+            assert_eq!(mock_state.get_transaction_count_n, 1);
+            assert_eq!(mock_state.get_transaction_receipt_n, 1);
+            assert_eq!(mock_state.send_transaction_n, 1);
+            assert_eq!(mock_state.sign_transaction_n, 2);
+        }
     }
 }
 
 // Auxiliary functions.
 
 fn setup_dependencies() -> (MockMiddleware, GasOracle, Database) {
-    MockMiddleware::setup_state();
     (MockMiddleware::new(), GasOracle::new(), Database::new())
 }
 
@@ -159,6 +181,7 @@ async fn setup_manager(
         middleware,
         gas_oracle,
         db,
+        U64::from(1),
         Duration::ZERO,
         Duration::ZERO,
     )
