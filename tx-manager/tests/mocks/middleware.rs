@@ -5,11 +5,10 @@ use ethers::providers::{
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    Address, Block, BlockId, Bloom, NameOrAddress, Signature,
-    TransactionReceipt, TxHash, H256, U256, U64,
+    Address, Block, BlockId, NameOrAddress, Signature, TransactionReceipt,
+    TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
-use std::str::FromStr;
 
 // Global state used to simulate the blockchain.
 
@@ -80,7 +79,7 @@ pub struct MockMiddleware {
     provider: (Provider<MockProvider>, MockProvider),
     pub estimate_gas: Option<U256>,
     pub get_block: Option<()>,
-    pub get_block_number: Option<Vec<u32>>,
+    pub get_block_number: Vec<Option<u32>>,
     pub get_transaction_count: Option<()>,
     pub get_transaction_receipt: Option<()>,
     pub send_transaction: Option<()>,
@@ -96,7 +95,7 @@ impl MockMiddleware {
             provider: Provider::mocked(),
             estimate_gas: None,
             get_block: None,
-            get_block_number: None,
+            get_block_number: Vec::new(),
             get_transaction_count: None,
             get_transaction_receipt: None,
             send_transaction: None,
@@ -149,10 +148,8 @@ impl Middleware for MockMiddleware {
         unsafe {
             STATE.get_block_number_n += 1;
         };
-        let current_block = self
-            .get_block_number
-            .as_ref()
-            .ok_or(MockMiddlewareError::GetBlockNumber)?[i];
+        let current_block = self.get_block_number[i]
+            .ok_or(MockMiddlewareError::GetBlockNumber)?;
         Ok(u64(current_block))
     }
 
@@ -171,32 +168,16 @@ impl Middleware for MockMiddleware {
 
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
         &self,
-        _: T,
+        transaction_hash: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
         unsafe {
             STATE.get_transaction_receipt_n += 1;
         }
         self.get_transaction_receipt
             .ok_or(MockMiddlewareError::GetTransactionReceipt)?;
-
-        let transaction_hash = "0x824384376c5972498c6fcafe71fd8cad1689f64e7d5e270d025a898638c0c34d";
-        let block_hash = "0x55ae43d3511e327dc532855510d110676d340aa1bbba369b4b98896d86559586";
-
-        let receipt = TransactionReceipt {
-            transaction_hash: h256(transaction_hash),
-            transaction_index: u64(13),
-            block_hash: Some(h256(block_hash)),
-            block_number: Some(u64(unsafe { STATE.get_block_number_n as u32 })),
-            cumulative_gas_used: u256(2000000),
-            gas_used: Some(u256(30000)),
-            contract_address: None,
-            logs: vec![],
-            status: Some(u64(1)),
-            root: None, // TODO
-            logs_bloom: Bloom::zero(),
-            transaction_type: Some(u64(1)),
-            effective_gas_price: Some(u256(1000000000)),
-        };
+        let mut receipt = TransactionReceipt::default();
+        receipt.transaction_hash = transaction_hash.into();
+        receipt.block_number = Some(u64(0));
         Ok(Some(receipt))
     }
 
@@ -207,6 +188,7 @@ impl Middleware for MockMiddleware {
     ) -> Result<PendingTransaction<'_, Self::Provider>, Self::Error> {
         unsafe {
             STATE.send_transaction_n += 1;
+            STATE.sign_transaction_n -= 1;
         }
         let tx: &TypedTransaction = &tx.into();
         let signature = self.sign_transaction(tx, *tx.from().unwrap()).await?;
@@ -249,8 +231,4 @@ fn u64(n: u32) -> U64 {
 
 fn u256(n: u32) -> U256 {
     U256::from_dec_str(&n.to_string()).unwrap()
-}
-
-fn h256(s: &str) -> H256 {
-    H256::from_str(s).unwrap()
 }
