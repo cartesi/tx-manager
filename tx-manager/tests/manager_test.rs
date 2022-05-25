@@ -150,7 +150,7 @@ async fn test_manager_send_transaction_basic() {
         db.set_state_output = Some(());
         db.clear_state_output = Some(());
 
-        let mut manager = setup_manager(middleware, gas_oracle, db).await;
+        let manager = setup_manager(middleware, gas_oracle, db).await;
         let result = manager
             .send_transaction(transaction.clone(), Some(Duration::ZERO))
             .await;
@@ -180,7 +180,7 @@ async fn test_manager_send_transaction_basic() {
         db.set_state_output = Some(());
         db.clear_state_output = Some(());
 
-        let mut manager = setup_manager(middleware, gas_oracle, db).await;
+        let manager = setup_manager(middleware, gas_oracle, db).await;
         let result = manager
             .send_transaction(transaction, Some(Duration::ZERO))
             .await;
@@ -460,7 +460,7 @@ async fn run_send_transaction(
     db.clear_state_output = Some(());
     let (middleware, gas_oracle, db) = f(middleware, gas_oracle, db);
 
-    let mut manager = setup_manager(middleware, gas_oracle, db).await;
+    let manager = setup_manager(middleware, gas_oracle, db).await;
     let transaction = Transaction {
         priority: Priority::Normal,
         from: Data::get().address[0],
@@ -471,6 +471,7 @@ async fn run_send_transaction(
     manager
         .send_transaction(transaction, Some(Duration::ZERO))
         .await
+        .map(|(_, receipt)| receipt)
 }
 
 // Mocked data.

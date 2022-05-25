@@ -120,10 +120,10 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     }
 
     pub async fn send_transaction(
-        &mut self,
+        mut self,
         transaction: Transaction,
         polling_time: Option<Duration>,
-    ) -> Result<TransactionReceipt, ManagerError<M>> {
+    ) -> Result<(Self, TransactionReceipt), ManagerError<M>> {
         let mut state = State {
             nonce: None,
             transaction,
@@ -144,7 +144,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .await
             .map_err(|err| ManagerError::ClearState(err, receipt.clone()))?;
 
-        Ok(receipt)
+        Ok((self, receipt))
     }
 
     #[async_recursion(?Send)]
