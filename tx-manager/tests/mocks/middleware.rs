@@ -177,7 +177,7 @@ impl Middleware for MockMiddleware {
             .ok_or(MockMiddlewareError::GetTransactionReceipt)?;
         let mut receipt = TransactionReceipt::default();
         receipt.transaction_hash = transaction_hash.into();
-        receipt.block_number = Some(u64(0));
+        receipt.block_number = Some(u64(0)); // TODO
         Ok(Some(receipt))
     }
 

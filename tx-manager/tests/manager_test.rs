@@ -1,7 +1,7 @@
 mod mocks;
 
 use anyhow::anyhow;
-use ethers::types::{U256, U64};
+use ethers::types::{Address, TransactionReceipt, TxHash, U256, U64};
 use serial_test::serial;
 use std::time::Duration;
 
@@ -10,8 +10,8 @@ use tx_manager::manager::{Manager, ManagerError, State};
 use tx_manager::transaction::{Priority, Transaction, Value};
 
 use mocks::{
-    mock_state, Data, Database, DatabaseError, GasOracle, MockMiddleware,
-    MockMiddlewareError,
+    mock_state, Database, DatabaseError, GasOracle, GasOracleError,
+    MockMiddleware, MockMiddlewareError,
 };
 
 macro_rules! assert_ok(
@@ -35,13 +35,13 @@ macro_rules! assert_err(
 #[tokio::test]
 #[serial]
 async fn test_manager_new() {
-    let data = Data::instance();
+    Data::setup();
     let chain_id = U64::from(1);
 
     let transaction = Transaction {
         priority: Priority::Normal,
-        from: data.address[0],
-        to: data.address[1],
+        from: Data::get().address[0],
+        to: Data::get().address[1],
         value: Value::Number(u256(5)),
         confirmations: 1,
     };
@@ -76,7 +76,7 @@ async fn test_manager_new() {
         db.get_state_output = Some(Some(State {
             nonce: Some(u256(1)),
             transaction: transaction.clone(),
-            pending_transactions: vec![data.transaction_hash[0]],
+            pending_transactions: vec![Data::get().transaction_hash[0]],
         }));
         db.clear_state_output = Some(());
         let zero_sec = Duration::from_secs(0);
@@ -100,7 +100,7 @@ async fn test_manager_new() {
         db.get_state_output = Some(Some(State {
             nonce: Some(u256(1)),
             transaction: transaction.clone(),
-            pending_transactions: vec![data.transaction_hash[0]],
+            pending_transactions: vec![Data::get().transaction_hash[0]],
         }));
         let one_sec = Duration::from_secs(1);
         let result = Manager::new_(
@@ -119,18 +119,19 @@ async fn test_manager_new() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_advanced() {
+    Data::setup();
     todo!()
 }
 
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic() {
-    let data = Data::instance();
+    Data::setup();
 
     let transaction = Transaction {
         priority: Priority::Normal,
-        from: data.address[0],
-        to: data.address[1],
+        from: Data::get().address[0],
+        to: Data::get().address[1],
         value: Value::Number(u256(5)),
         confirmations: 1, // to be set in each test if necessary
     };
@@ -200,226 +201,202 @@ async fn test_manager_send_transaction_basic() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_middleware_errors() {
-    let data = Data::instance();
+    Data::setup();
 
-    async fn run_test(
-        data: &Data,
-        err: MockMiddlewareError,
-        f: fn(MockMiddleware) -> MockMiddleware,
-    ) {
-        let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
-        middleware = setup_middleware(middleware);
-        middleware = f(middleware);
-        gas_oracle.gas_info_output = Some(GasInfo {
-            gas_price: 300,
-            mining_time: Some(Duration::ZERO),
-            block_time: Some(Duration::ZERO),
-        });
-        db.set_state_output = Some(());
-        db.clear_state_output = Some(());
-
-        let mut manager = setup_manager(middleware, gas_oracle, db).await;
-        let transaction = Transaction {
-            priority: Priority::Normal,
-            from: data.address[0],
-            to: data.address[1],
-            value: Value::Number(u256(5)),
-            confirmations: 1,
-        };
-        let result = manager
-            .send_transaction(transaction, Some(Duration::ZERO))
-            .await;
-        assert_err!(result, ManagerError::<MockMiddleware>::Middleware(err));
-    }
-
-    // Error when "get_block_number" fails inside "Manager::send_transaction_".
+    // When "Middleware::get_block_number" fails
+    // inside "Manager::send_transaction_".
     {
-        run_test(
-            &data,
-            MockMiddlewareError::GetBlockNumber,
-            |mut middleware| {
-                middleware.get_block_number = vec![None, Some(1)];
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![None, Some(1)];
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(0, mock_state.get_block_n);
-            assert_eq!(0, mock_state.get_transaction_count_n);
-            assert_eq!(0, mock_state.estimate_gas_n);
-            assert_eq!(0, mock_state.sign_transaction_n);
-            assert_eq!(0, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::GetBlockNumber,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.get_block_number_n) }
     }
 
-    // Error when "get_block" fails.
+    // When "Middleware::get_block" fails.
     {
-        run_test(&data, MockMiddlewareError::GetBlock, |mut middleware| {
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
             middleware.get_block = None;
-            middleware
+            (middleware, gas_oracle, db)
         })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(0, mock_state.get_transaction_count_n);
-            assert_eq!(0, mock_state.estimate_gas_n);
-            assert_eq!(0, mock_state.sign_transaction_n);
-            assert_eq!(0, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::GetBlock,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.get_block_n) }
     }
 
-    // Error when "get_transaction_count" fails.
+    // When "Middleware::get_transaction_count" fails.
     {
-        run_test(
-            &data,
-            MockMiddlewareError::GetTransactionCount,
-            |mut middleware| {
-                middleware.get_transaction_count = None;
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.get_transaction_count = None;
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(0, mock_state.estimate_gas_n);
-            assert_eq!(0, mock_state.sign_transaction_n);
-            assert_eq!(0, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::GetTransactionCount,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.get_transaction_count_n) }
     }
 
-    // Error when "estimate_gas" fails.
+    // When "Middleware::estimate_gas" fails.
     {
-        run_test(&data, MockMiddlewareError::EstimateGas, |mut middleware| {
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
             middleware.estimate_gas = None;
-            middleware
+            (middleware, gas_oracle, db)
         })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(1, mock_state.estimate_gas_n);
-            assert_eq!(0, mock_state.sign_transaction_n);
-            assert_eq!(0, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::EstimateGas,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.estimate_gas_n) }
     }
 
-    // Error when "sign_transaction" fails.
+    // When "Middleware::sign_transaction" fails.
     {
-        run_test(
-            &data,
-            MockMiddlewareError::SignTransaction,
-            |mut middleware| {
-                middleware.sign_transaction = None;
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.sign_transaction = None;
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(1, mock_state.estimate_gas_n);
-            assert_eq!(1, mock_state.sign_transaction_n);
-            assert_eq!(0, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::SignTransaction,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.sign_transaction_n) }
     }
 
-    // Error when "send_transaction" fails.
+    // When "Middleware::send_transaction" fails.
     {
-        run_test(
-            &data,
-            MockMiddlewareError::SendTransaction,
-            |mut middleware| {
-                middleware.send_transaction = None;
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.send_transaction = None;
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(1, mock_state.estimate_gas_n);
-            assert_eq!(1, mock_state.sign_transaction_n);
-            assert_eq!(1, mock_state.send_transaction_n);
-            assert_eq!(0, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::SendTransaction,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.send_transaction_n) }
     }
 
-    // Error when "get_transaction_receipt" fails.
+    // When "Middleware::get_transaction_receipt" fails.
     {
-        run_test(
-            &data,
-            MockMiddlewareError::GetTransactionReceipt,
-            |mut middleware| {
-                middleware.get_transaction_receipt = None;
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.get_transaction_receipt = None;
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(1, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(1, mock_state.estimate_gas_n);
-            assert_eq!(1, mock_state.sign_transaction_n);
-            assert_eq!(1, mock_state.send_transaction_n);
-            assert_eq!(1, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::GetTransactionReceipt,
+            )
+        );
+        unsafe { assert_eq!(1, mock_state.get_transaction_receipt_n) }
     }
 
-    // Error when "get_block_number" fails inside
-    // "Manager::confirm_transaction".
+    // When "Middleware::get_block_number"
+    // fails inside "Manager::confirm_transaction".
     {
-        run_test(
-            &data,
-            MockMiddlewareError::GetBlockNumber,
-            |mut middleware| {
-                middleware.get_block_number = vec![Some(0), None];
-                middleware
-            },
-        )
+        let result = run_send_transaction(|mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![Some(0), None];
+            (middleware, gas_oracle, db)
+        })
         .await;
-
-        unsafe {
-            assert_eq!(2, mock_state.get_block_number_n);
-            assert_eq!(1, mock_state.get_block_n);
-            assert_eq!(1, mock_state.get_transaction_count_n);
-            assert_eq!(1, mock_state.estimate_gas_n);
-            assert_eq!(1, mock_state.sign_transaction_n);
-            assert_eq!(1, mock_state.send_transaction_n);
-            assert_eq!(1, mock_state.get_transaction_receipt_n);
-        }
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::Middleware(
+                MockMiddlewareError::GetBlockNumber,
+            )
+        );
+        unsafe { assert_eq!(2, mock_state.get_block_number_n) }
     }
 }
 
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_gas_oracle_errors() {
-    todo!()
+    Data::setup();
+
+    // When "GasOracle::gas_info" fails.
+    {
+        let result = run_send_transaction(|middleware, mut gas_oracle, db| {
+            gas_oracle.gas_info_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::GasOracle(anyhow!(
+                GasOracleError::GasInfo
+            ))
+        );
+        assert_eq!(1, GasOracle::global().gas_info_n);
+    }
 }
 
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_database_errors() {
-    todo!()
+    Data::setup();
+
+    // When "Database::set_state" fails.
+    {
+        let result = run_send_transaction(|middleware, gas_oracle, mut db| {
+            db.set_state_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        assert_err!(
+            result,
+            ManagerError::<MockMiddleware>::SetState(anyhow!(
+                DatabaseError::SetState
+            ))
+        );
+        assert_eq!(1, Database::global().set_state_n);
+    }
+
+    // When "Database::clear_state" fails.
+    {
+        let result = run_send_transaction(|middleware, gas_oracle, mut db| {
+            db.clear_state_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ManagerError::ClearState(err, _) => {
+                assert_err!(
+                    Result::<(), anyhow::Error>::Err(err),
+                    DatabaseError::ClearState
+                )
+                // TODO: assert_eq!(1, receipt.block_number)
+            }
+            _ => assert!(false),
+        };
+        assert_eq!(1, Database::global().clear_state_n);
+    }
 }
 
 // Auxiliary functions.
@@ -462,4 +439,85 @@ fn setup_middleware(mut middleware: MockMiddleware) -> MockMiddleware {
 
 fn u256(n: u32) -> U256 {
     U256::from(n)
+}
+
+async fn run_send_transaction(
+    f: fn(
+        MockMiddleware,
+        GasOracle,
+        Database,
+    ) -> (MockMiddleware, GasOracle, Database),
+) -> Result<TransactionReceipt, ManagerError<MockMiddleware>> {
+    let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
+    middleware = setup_middleware(middleware);
+    gas_oracle.gas_info_output = Some(GasInfo {
+        gas_price: 300,
+        mining_time: Some(Duration::ZERO),
+        block_time: Some(Duration::ZERO),
+    });
+    db.get_state_output = None;
+    db.set_state_output = Some(());
+    db.clear_state_output = Some(());
+    let (middleware, gas_oracle, db) = f(middleware, gas_oracle, db);
+
+    let mut manager = setup_manager(middleware, gas_oracle, db).await;
+    let transaction = Transaction {
+        priority: Priority::Normal,
+        from: Data::get().address[0],
+        to: Data::get().address[1],
+        value: Value::Number(u256(5)),
+        confirmations: 1,
+    };
+    manager
+        .send_transaction(transaction, Some(Duration::ZERO))
+        .await
+}
+
+// Mocked data.
+
+static mut DATA: Data = Data::default();
+
+#[derive(Debug)]
+struct Data {
+    address: Vec<Address>,
+    transaction_hash: Vec<TxHash>,
+}
+
+impl Data {
+    const fn default() -> Data {
+        Data {
+            address: Vec::new(),
+            transaction_hash: Vec::new(),
+        }
+    }
+
+    fn get() -> &'static Data {
+        unsafe { &DATA }
+    }
+
+    fn setup() {
+        let address = [
+            "0xba763b97851b653aaaf631723bab41a500f03b29",
+            "0x29e425df042e83e4ddb3ee3348d6d745c58fce8f",
+            "0x905f3bd1bd9cd23be618454e58ab9e4a104909a9",
+            "0x7e2d4b75bbf489e691f8a1f7e5f2f1148e15feed",
+        ]
+        .map(|s| s.parse().unwrap())
+        .to_vec();
+
+        let transaction_hash = [
+            "0x2b34df791cc4eb898f6d4437713e946f216cac6a3921b2899db919abe26739b2",
+            "0x4eb76dd4a6f6d37212f3b26da6a026c30a92700cdf560f81b14bc42c2cffb218",
+            "0x08bd64232916289006f3de2c1cad8e5afa6eabcf4efff219721b87ee6f9084ec",
+            "0xffff364da9e2b4bca9199197c220ae334174527c12180f9d667005a887ff2fd6",
+        ]
+        .map(|s| s.parse().unwrap()).to_vec();
+
+        unsafe {
+            DATA = Data {
+                address,
+                transaction_hash,
+            }
+        }
+    }
 }

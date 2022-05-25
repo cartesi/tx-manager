@@ -9,11 +9,11 @@ use crate::manager::State;
 
 #[async_trait]
 pub trait Database: Debug {
-    async fn set_state(&self, state: &State) -> Result<()>;
+    async fn set_state(&mut self, state: &State) -> Result<()>;
 
     async fn get_state(&self) -> Result<Option<State>>;
 
-    async fn clear_state(&self) -> Result<()>;
+    async fn clear_state(&mut self) -> Result<()>;
 }
 
 // Implementation using the file system.
@@ -31,7 +31,7 @@ impl FileSystemDatabase {
 
 #[async_trait]
 impl Database for FileSystemDatabase {
-    async fn set_state(&self, state: &State) -> Result<()> {
+    async fn set_state(&mut self, state: &State) -> Result<()> {
         let mut file = fs::File::create(self.path).await?;
         let s = serde_json::to_string_pretty(state)?;
         file.write_all(s.as_bytes()).await?;
@@ -53,7 +53,7 @@ impl Database for FileSystemDatabase {
         };
     }
 
-    async fn clear_state(&self) -> Result<()> {
+    async fn clear_state(&mut self) -> Result<()> {
         return Ok(fs::remove_file(self.path).await?);
     }
 }
@@ -75,7 +75,7 @@ mod test {
         // setup
         let path_str = "./set_database.json";
         let path = Path::new(path_str);
-        let database = FileSystemDatabase::new(path_str);
+        let mut database = FileSystemDatabase::new(path_str);
         let _ = database.clear_state().await;
 
         // ok => set state over empty state
@@ -83,8 +83,8 @@ mod test {
             nonce: Some(1.into()),
             transaction: Transaction {
                 priority: Priority::Normal,
-                from: to_h160(1),
-                to: to_h160(2),
+                from: h160(1),
+                to: h160(2),
                 value: Value::Number(5000.into()),
                 confirmations: 0,
             },
@@ -100,12 +100,12 @@ mod test {
             nonce: Some(2.into()),
             transaction: Transaction {
                 priority: Priority::High,
-                from: to_h160(5),
-                to: to_h160(6),
+                from: h160(5),
+                to: h160(6),
                 value: Value::Number(3000.into()),
                 confirmations: 5,
             },
-            pending_transactions: vec![to_h256(1400), to_h256(1500)],
+            pending_transactions: vec![h256(1400), h256(1500)],
         };
         assert!(path.is_file());
         let result = database.set_state(&state2).await;
@@ -121,7 +121,7 @@ mod test {
         // setup
         let path_str = "./get_database.json";
         let path = Path::new(path_str);
-        let database = FileSystemDatabase::new(path_str);
+        let mut database = FileSystemDatabase::new(path_str);
         let _ = database.clear_state().await;
 
         // ok => get empty state
@@ -136,12 +136,12 @@ mod test {
             nonce: Some(2.into()),
             transaction: Transaction {
                 priority: Priority::High,
-                from: to_h160(5),
-                to: to_h160(6),
+                from: h160(5),
+                to: h160(6),
                 value: Value::Number(3000.into()),
                 confirmations: 5,
             },
-            pending_transactions: vec![to_h256(1400), to_h256(1500)],
+            pending_transactions: vec![h256(1400), h256(1500)],
         };
         let result = database.set_state(&original_state).await;
         assert!(result.is_ok());
@@ -178,11 +178,11 @@ mod test {
 
     // auxiliary functions
 
-    fn to_h160(n: u64) -> H160 {
+    fn h160(n: u64) -> H160 {
         return H160::from_low_u64_ne(n);
     }
 
-    fn to_h256(n: u64) -> H256 {
+    fn h256(n: u64) -> H256 {
         return H256::from_low_u64_ne(n);
     }
 }
