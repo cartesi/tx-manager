@@ -11,7 +11,7 @@ use tx_manager::transaction::{Priority, Transaction, Value};
 
 use mocks::{
     Database, DatabaseError, GasOracle, GasOracleError, MockMiddleware,
-    MockMiddlewareError,
+    MockMiddlewareError, Time,
 };
 
 macro_rules! assert_ok(
@@ -83,6 +83,7 @@ async fn test_manager_new() {
             middleware,
             gas_oracle,
             db,
+            Box::new(Time),
             chain_id,
             Duration::ZERO,
             Duration::ZERO,
@@ -110,6 +111,7 @@ async fn test_manager_new() {
             middleware,
             gas_oracle,
             db,
+            Box::new(Time),
             chain_id,
             Duration::ZERO,
             Duration::ZERO,
@@ -127,29 +129,49 @@ async fn test_manager_new() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_advanced() {
-    tracing_subscriber::fmt::init();
     Data::setup();
 
     // Resends the transaction once.
     {
         let result =
-            run_send_transaction(2, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![0, 1, 1, 1, 2, 3, 4, 5];
-                middleware.get_transaction_receipt =
-                    vec![true, true, true, false, true, true, true, true];
+            run_send_transaction(1, |mut middleware, gas_oracle, db| {
+                middleware.get_block_number = vec![0, 1, 2];
+                middleware.get_transaction_receipt = vec![false, true];
                 (middleware, gas_oracle, db)
             })
             .await;
-        // assert_ok!(result);
+        assert_ok!(result);
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
-        assert_eq!(8, MockMiddleware::global().get_block_number_n);
+        assert_eq!(3, MockMiddleware::global().get_block_number_n);
         assert_eq!(2, MockMiddleware::global().get_block_n);
-        assert_eq!(2, MockMiddleware::global().get_transaction_count_n);
+        assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(2, MockMiddleware::global().estimate_gas_n);
         assert_eq!(2, MockMiddleware::global().sign_transaction_n);
         assert_eq!(2, MockMiddleware::global().send_transaction_n);
-        assert_eq!(7, MockMiddleware::global().get_transaction_receipt_n);
+        assert_eq!(2, MockMiddleware::global().get_transaction_receipt_n);
+    }
+
+    // Resends the transaction twice.
+    {
+        let result =
+            run_send_transaction(1, |mut middleware, gas_oracle, db| {
+                middleware.get_block_number = vec![0, 1, 2, 3];
+                middleware.get_transaction_receipt =
+                    vec![false, false, false, true];
+                (middleware, gas_oracle, db)
+            })
+            .await;
+        assert_ok!(result);
+
+        assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
+        assert_eq!(4, MockMiddleware::global().get_block_number_n);
+        assert_eq!(3, MockMiddleware::global().get_block_n);
+        assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
+        assert_eq!(3, MockMiddleware::global().estimate_gas_n);
+        assert_eq!(3, MockMiddleware::global().sign_transaction_n);
+        assert_eq!(3, MockMiddleware::global().send_transaction_n);
+        assert_eq!(4, MockMiddleware::global().get_transaction_receipt_n);
     }
 }
 
@@ -467,7 +489,8 @@ async fn setup_manager(
         middleware,
         gas_oracle,
         db,
-        U64::from(1),
+        Box::new(Time),
+        U64::from(1), // chain id
         Duration::ZERO,
         Duration::ZERO,
     )
@@ -550,6 +573,18 @@ impl Data {
     }
 
     fn setup() {
+        let format = tracing_subscriber::fmt::format()
+            .without_time()
+            .with_target(false)
+            .with_level(false)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_file(false)
+            .with_line_number(false)
+            .with_source_location(false)
+            .compact();
+        let _ = tracing_subscriber::fmt().event_format(format).try_init();
+
         let address = [
             "0xba763b97851b653aaaf631723bab41a500f03b29",
             "0x29e425df042e83e4ddb3ee3348d6d745c58fce8f",

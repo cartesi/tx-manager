@@ -9,7 +9,8 @@ use ethers::types::{
     TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
-use std::cmp::max;
+use std::collections::HashMap;
+// use tracing::info;
 
 // Middleware mock.
 
@@ -63,6 +64,7 @@ impl MockMiddleware {
     pub fn new() -> Self {
         unsafe {
             GLOBAL = Global::default();
+            GLOBAL.init();
         }
         Self {
             provider: Provider::mocked(),
@@ -158,11 +160,13 @@ impl Middleware for MockMiddleware {
         unsafe { Ok(u256(GLOBAL.nonce)) }
     }
 
+    #[tracing::instrument(skip(self, transaction_hash))]
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
         &self,
         transaction_hash: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
         let i = unsafe { GLOBAL.get_transaction_receipt_n as usize };
+        // info!("get_transaction_receipt {:?}", i);
         unsafe {
             GLOBAL.get_transaction_receipt_n += 1;
         }
@@ -175,10 +179,13 @@ impl Middleware for MockMiddleware {
         } else {
             let mut receipt = TransactionReceipt::default();
             receipt.transaction_hash = transaction_hash.into();
-
-            let j = unsafe { GLOBAL.get_block_number_n as usize } - 1;
-            let block_number = max(0, self.get_block_number[j]);
-            receipt.block_number = Some(u64(block_number));
+            let block_number = unsafe {
+                *GLOBAL
+                    .sent_transactions()
+                    .get(&receipt.transaction_hash)
+                    .unwrap_or(&0)
+            };
+            receipt.block_number = Some(u64(block_number.try_into().unwrap()));
             Ok(Some(receipt))
         }
     }
@@ -203,7 +210,8 @@ impl Middleware for MockMiddleware {
         let pending_transaction =
             PendingTransaction::new(hash, self.provider());
         unsafe {
-            GLOBAL.sent_transactions.push(*pending_transaction);
+            let current_block = GLOBAL.get_block_number_n - 1;
+            GLOBAL.insert_transaction(*pending_transaction, current_block);
         }
         Ok(pending_transaction)
     }
@@ -238,8 +246,8 @@ fn u256(n: u32) -> U256 {
 // Global state used to simulate the blockchain.
 
 pub struct Global {
-    pub nonce: u32,
-    pub sent_transactions: Vec<TxHash>,
+    nonce: u32,
+    sent_transactions: Option<HashMap<TxHash, i32>>, // hash to block
 
     // Stores how many times each function was called.
     pub estimate_gas_n: i32,
@@ -257,8 +265,8 @@ static mut GLOBAL: Global = Global::default();
 impl Global {
     const fn default() -> Global {
         Global {
-            nonce: 1,
-            sent_transactions: Vec::new(),
+            nonce: 0,
+            sent_transactions: None,
             estimate_gas_n: 0,
             get_block_n: 0,
             get_block_number_n: 0,
@@ -268,5 +276,19 @@ impl Global {
             send_transaction_n: 0,
             sign_transaction_n: 0,
         }
+    }
+
+    fn init(&mut self) {
+        self.nonce = 1;
+        self.sent_transactions = Some(HashMap::new());
+    }
+
+    fn insert_transaction(&mut self, hash: TxHash, block_number: i32) {
+        let map = self.sent_transactions.as_mut().unwrap();
+        map.insert(hash, block_number);
+    }
+
+    fn sent_transactions(&self) -> HashMap<TxHash, i32> {
+        self.sent_transactions.as_ref().unwrap().clone()
     }
 }

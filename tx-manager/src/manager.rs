@@ -7,12 +7,13 @@ use ethers::types::{
 };
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::time::{Duration, Instant};
-use tokio::time::sleep;
 use tracing::info;
 
 use crate::database::Database;
 use crate::gas_oracle::{GasInfo, GasOracle};
+use crate::time::{DefaultTime, Time};
 use crate::transaction::{Priority, Transaction};
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +49,7 @@ pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
     provider: M,
     gas_oracle: GO,
     db: DB,
+    time: Box<dyn Time>,
     chain_id: U64,
     mining_time: Duration,
     block_time: Duration,
@@ -68,6 +70,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             provider,
             gas_oracle,
             db,
+            Box::new(DefaultTime),
             chain_id,
             Duration::from_secs(60),
             Duration::from_secs(20),
@@ -79,6 +82,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         provider: M,
         gas_oracle: GO,
         db: DB,
+        time: Box<dyn Time>,
         chain_id: U64,
         mining_time: Duration,
         block_time: Duration,
@@ -86,8 +90,9 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let mut manager = Manager {
             provider,
             gas_oracle,
-            chain_id,
             db,
+            time,
+            chain_id,
             mining_time,
             block_time,
         };
@@ -119,6 +124,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         Ok((manager, transaction_receipt))
     }
 
+    #[tracing::instrument(skip(self, transaction, polling_time,))]
     pub async fn send_transaction(
         mut self,
         transaction: Transaction,
@@ -138,15 +144,19 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .await
             .map_err(|err| ManagerError::ClearState(err, receipt.clone()))?;
 
+        info!("Transaction sent.");
         Ok((self, receipt))
     }
 
     #[async_recursion(?Send)]
+    #[tracing::instrument(skip(self, state, polling_time))]
     async fn send_transaction_(
         &mut self,
         state: &mut State,
         polling_time: Option<Duration>,
     ) -> Result<TransactionReceipt, ManagerError<M>> {
+        info!("(Re)sending the transaction.");
+
         let transaction = &state.transaction;
 
         // Estimating gas prices and sleep times.
@@ -160,9 +170,10 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .wait_time(state.transaction.confirmations, gas_info.mining_time);
 
         // Getting the nonce.
-        let nonce = state
-            .nonce
-            .unwrap_or(self.get_nonce(transaction.from).await?);
+        if state.nonce.is_none() {
+            state.nonce = Some(self.get_nonce(transaction.from).await?);
+        }
+        let nonce = state.nonce.unwrap();
 
         // Creating the transaction request.
         let mut request: Eip1559TransactionRequest = transaction
@@ -189,6 +200,11 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 .await
                 .map_err(ManagerError::SetState)?;
 
+            info!(
+                "The manager has {:?} pending transactions.",
+                state.pending_transactions.len()
+            );
+
             // Sending the transaction.
             let pending_transaction = self
                 .provider
@@ -211,7 +227,14 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         .await
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(
+        self,
+        state,
+        polling_time,
+        wait_time,
+        start_time,
+        sleep_first
+    ))]
     async fn confirm_transaction(
         &mut self,
         state: &mut State,
@@ -220,7 +243,12 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         start_time: Instant,
         sleep_first: bool,
     ) -> Result<TransactionReceipt, ManagerError<M>> {
-        info!("Confirming the transaction.");
+        assert!(state.nonce.is_some());
+
+        info!(
+            "Confirming transaction (nonce = {:?}).",
+            state.nonce.unwrap()
+        );
 
         let polling_time = polling_time.unwrap_or(self.mining_time);
         let mut sleep_time = if sleep_first {
@@ -231,7 +259,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         loop {
             // Sleeping.
-            sleep(sleep_time).await;
+            self.time.sleep(sleep_time).await;
 
             // Were any of the transactions mined?
             let receipt = self.get_mined_transaction(state).await?;
@@ -247,24 +275,27 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                         .map_err(ManagerError::Middleware)?
                         .as_usize();
 
+                    info!("Mined transaction block: {:?}.", transaction_block);
+                    info!("Current block: {:?}.", current_block);
+
                     // Are there enough confirmations?
                     assert!(current_block >= transaction_block);
-                    let delta = (current_block - transaction_block) as u32;
-                    if delta >= state.transaction.confirmations {
+                    let mut delta = (current_block - transaction_block) as i32;
+                    delta = (state.transaction.confirmations as i32) - delta;
+                    info!("{:?} more confirmations required.", delta);
+                    if delta <= 0 {
                         return Ok(receipt);
                     }
 
                     sleep_time = self.block_time;
                 }
                 None => {
+                    info!("No transaction mined.");
+
                     // Have I waited too much?
-                    let elapsed_time =
-                        Duration::from_secs(start_time.elapsed().as_secs());
-                    info!(
-                        "Elapsed vs wait time: {:?} {:?}.",
-                        elapsed_time, wait_time
-                    );
+                    let elapsed_time = self.time.elapsed(start_time);
                     if elapsed_time > wait_time {
+                        info!("I have waited too much!");
                         return self
                             .send_transaction_(state, Some(polling_time))
                             .await;
