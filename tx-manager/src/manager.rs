@@ -33,12 +33,12 @@ pub enum ManagerError<M: Middleware> {
     ClearState(anyhow::Error, TransactionReceipt),
 
     #[error("gas oracle: {0}")]
-    GasOracle(anyhow::Error),
+    GasOracle(anyhow::Error, M::Error),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct State {
-    pub nonce: Option<U256>, // TODO: is this necessary?
+    pub nonce: Option<U256>,
     pub transaction: Transaction,
     pub pending_transactions: Vec<H256>, // hashes
 }
@@ -130,12 +130,6 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             pending_transactions: Vec::new(),
         };
 
-        // Storing information about the pending transaction in the database.
-        self.db
-            .set_state(&state)
-            .await
-            .map_err(ManagerError::SetState)?;
-
         let receipt = self.send_transaction_(&mut state, polling_time).await?;
 
         // Clearing information about the transaction in the database.
@@ -165,10 +159,12 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let wait_time = self
             .wait_time(state.transaction.confirmations, gas_info.mining_time);
 
-        // Creating the transaction request.
+        // Getting the nonce.
         let nonce = state
             .nonce
             .unwrap_or(self.get_nonce(transaction.from).await?);
+
+        // Creating the transaction request.
         let mut request: Eip1559TransactionRequest = transaction
             .to_eip_1559_transaction_request(nonce, max_priority_fee, max_fee);
 
@@ -182,7 +178,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         let start_time: Instant;
         {
-            // Updating the transaction manager state.
+            // Storing information about the pending
+            // transaction in the database.
             let typed_transaction = &TypedTransaction::Eip1559(request.clone());
             let transaction_hash =
                 self.transaction_hash(&typed_transaction).await?;
@@ -261,7 +258,13 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 }
                 None => {
                     // Have I waited too much?
-                    if self.should_resend_transaction(start_time, wait_time) {
+                    let elapsed_time =
+                        Duration::from_secs(start_time.elapsed().as_secs());
+                    info!(
+                        "Elapsed vs wait time: {:?} {:?}.",
+                        elapsed_time, wait_time
+                    );
+                    if elapsed_time > wait_time {
                         return self
                             .send_transaction_(state, Some(polling_time))
                             .await;
@@ -277,13 +280,23 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         &self,
         priority: Priority,
     ) -> Result<GasInfo, ManagerError<M>> {
-        let gas_info = self
-            .gas_oracle
-            .gas_info(priority)
-            .await
-            .map_err(ManagerError::GasOracle)?;
-        // TODO: retry and fallback to the node if the gas_oracle fails
-        Ok(gas_info)
+        let gas_info = self.gas_oracle.gas_info(priority).await;
+        match gas_info {
+            Ok(gas_info) => Ok(gas_info),
+            Err(err1) => {
+                // TODO: move this to the gas_oracle?
+                let (max_fee, _max_priority_fee) = self
+                    .provider
+                    .estimate_eip1559_fees(None)
+                    .await
+                    .map_err(|err2| ManagerError::GasOracle(err1, err2))?;
+                Ok(GasInfo {
+                    gas_price: max_fee.as_u32() as i32,
+                    mining_time: None,
+                    block_time: None,
+                })
+            }
+        }
     }
 
     async fn get_mined_transaction(
@@ -305,15 +318,6 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             }
         }
         Ok(None)
-    }
-
-    fn should_resend_transaction(
-        &self,
-        start_time: Instant,
-        wait_time: Duration,
-    ) -> bool {
-        let elapsed_time = Duration::from_secs(start_time.elapsed().as_secs());
-        elapsed_time > wait_time
     }
 
     async fn get_max_priority_fee(
@@ -349,16 +353,6 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .map_err(ManagerError::Middleware)
     }
 
-    fn wait_time(
-        &self,
-        confirmations: u32,
-        mining_time: Option<Duration>,
-    ) -> Duration {
-        let mining_time = mining_time.unwrap_or(Duration::from_secs(300));
-        let confirmation_time = confirmations * self.block_time;
-        mining_time + confirmation_time
-    }
-
     // Computes the transaction hash.
     async fn transaction_hash(
         &self,
@@ -372,5 +366,15 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .map_err(ManagerError::Middleware)?;
         let bytes = typed_transaction.rlp_signed(self.chain_id, &signature);
         Ok(TxHash(keccak256(bytes)))
+    }
+
+    fn wait_time(
+        &self,
+        confirmations: u32,
+        mining_time: Option<Duration>,
+    ) -> Duration {
+        let mining_time = mining_time.unwrap_or(Duration::from_secs(300));
+        let confirmation_time = confirmations * self.block_time;
+        mining_time + confirmation_time
     }
 }

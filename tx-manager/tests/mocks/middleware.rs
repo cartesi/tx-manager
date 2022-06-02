@@ -9,22 +9,7 @@ use ethers::types::{
     TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
-
-// Global state used to simulate the blockchain.
-
-pub struct MockMiddlewareState {
-    pub nonce: u32,
-    pub sent_transactions: Vec<TxHash>,
-
-    // Stores how many times each function was called.
-    pub estimate_gas_n: i32,
-    pub get_block_n: i32,
-    pub get_block_number_n: i32,
-    pub get_transaction_count_n: i32,
-    pub get_transaction_receipt_n: i32,
-    pub send_transaction_n: i32,
-    pub sign_transaction_n: i32,
-}
+use std::cmp::max;
 
 // Middleware mock.
 
@@ -39,11 +24,14 @@ pub enum MockMiddlewareError {
     #[error("mock middleware error: get block number")]
     GetBlockNumber,
 
+    #[error("mock middleware error: estimate EIP1559 fees")]
+    EstimateEIP1559Fees,
+
     #[error("mock middleware error: get transaction count")]
     GetTransactionCount,
 
-    #[error("mock middleware error: get transaction receipt")]
-    GetTransactionReceipt,
+    #[error("mock middleware error: get transaction receipt ($0)")]
+    GetTransactionReceipt(i32),
 
     #[error("mock middleware error: send transaction")]
     SendTransaction,
@@ -58,30 +46,15 @@ impl FromErr<MockMiddlewareError> for MockMiddlewareError {
     }
 }
 
-pub static mut STATE: MockMiddlewareState = setup_state();
-
-const fn setup_state() -> MockMiddlewareState {
-    MockMiddlewareState {
-        nonce: 1,
-        sent_transactions: Vec::new(),
-        estimate_gas_n: 0,
-        get_block_n: 0,
-        get_block_number_n: 0,
-        get_transaction_count_n: 0,
-        get_transaction_receipt_n: 0,
-        send_transaction_n: 0,
-        sign_transaction_n: 0,
-    }
-}
-
 #[derive(Debug)]
 pub struct MockMiddleware {
     provider: (Provider<MockProvider>, MockProvider),
     pub estimate_gas: Option<U256>,
     pub get_block: Option<()>,
-    pub get_block_number: Vec<Option<u32>>,
+    pub get_block_number: Vec<u32>,
+    pub estimate_eip1559_fees: Option<(u32, u32)>,
     pub get_transaction_count: Option<()>,
-    pub get_transaction_receipt: Option<()>,
+    pub get_transaction_receipt: Vec<bool>,
     pub send_transaction: Option<()>,
     pub sign_transaction: Option<()>,
 }
@@ -89,18 +62,23 @@ pub struct MockMiddleware {
 impl MockMiddleware {
     pub fn new() -> Self {
         unsafe {
-            STATE = setup_state();
+            GLOBAL = Global::default();
         }
         Self {
             provider: Provider::mocked(),
             estimate_gas: None,
             get_block: None,
             get_block_number: Vec::new(),
+            estimate_eip1559_fees: None,
             get_transaction_count: None,
-            get_transaction_receipt: None,
+            get_transaction_receipt: Vec::new(),
             send_transaction: None,
             sign_transaction: None,
         }
+    }
+
+    pub fn global() -> &'static Global {
+        unsafe { &GLOBAL }
     }
 }
 
@@ -123,7 +101,7 @@ impl Middleware for MockMiddleware {
         _: &TypedTransaction,
     ) -> Result<U256, Self::Error> {
         unsafe {
-            STATE.estimate_gas_n += 1;
+            GLOBAL.estimate_gas_n += 1;
         }
         self.estimate_gas.ok_or(MockMiddlewareError::EstimateGas)
     }
@@ -133,7 +111,7 @@ impl Middleware for MockMiddleware {
         _: T,
     ) -> Result<Option<Block<TxHash>>, Self::Error> {
         unsafe {
-            STATE.get_block_n += 1;
+            GLOBAL.get_block_n += 1;
         }
         let mut block = Block::<TxHash>::default();
         block.base_fee_per_gas = Some(u256(250));
@@ -144,13 +122,27 @@ impl Middleware for MockMiddleware {
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
-        let i = unsafe { STATE.get_block_number_n as usize };
+        let i = unsafe { GLOBAL.get_block_number_n as usize };
         unsafe {
-            STATE.get_block_number_n += 1;
+            GLOBAL.get_block_number_n += 1;
         };
-        let current_block = self.get_block_number[i]
-            .ok_or(MockMiddlewareError::GetBlockNumber)?;
-        Ok(u64(current_block))
+        if i >= self.get_block_number.len() {
+            Err(MockMiddlewareError::GetBlockNumber)
+        } else {
+            Ok(u64(self.get_block_number[i]))
+        }
+    }
+
+    async fn estimate_eip1559_fees(
+        &self,
+        _: Option<fn(U256, Vec<Vec<U256>>) -> (U256, U256)>,
+    ) -> Result<(U256, U256), Self::Error> {
+        unsafe {
+            GLOBAL.estimate_eip1559_fees_n += 1;
+        };
+        self.estimate_eip1559_fees
+            .map(|(x, y)| (U256::from(x), U256::from(y)))
+            .ok_or(MockMiddlewareError::EstimateEIP1559Fees)
     }
 
     async fn get_transaction_count<T: Into<NameOrAddress> + Send + Sync>(
@@ -159,26 +151,36 @@ impl Middleware for MockMiddleware {
         _: Option<BlockId>,
     ) -> Result<U256, Self::Error> {
         unsafe {
-            STATE.get_transaction_count_n += 1;
+            GLOBAL.get_transaction_count_n += 1;
         }
         self.get_transaction_count
             .ok_or(MockMiddlewareError::GetTransactionCount)?;
-        unsafe { Ok(u256(STATE.nonce)) }
+        unsafe { Ok(u256(GLOBAL.nonce)) }
     }
 
     async fn get_transaction_receipt<T: Send + Sync + Into<TxHash>>(
         &self,
         transaction_hash: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
+        let i = unsafe { GLOBAL.get_transaction_receipt_n as usize };
         unsafe {
-            STATE.get_transaction_receipt_n += 1;
+            GLOBAL.get_transaction_receipt_n += 1;
         }
-        self.get_transaction_receipt
-            .ok_or(MockMiddlewareError::GetTransactionReceipt)?;
-        let mut receipt = TransactionReceipt::default();
-        receipt.transaction_hash = transaction_hash.into();
-        receipt.block_number = Some(u64(0)); // TODO
-        Ok(Some(receipt))
+        if i >= self.get_transaction_receipt.len() {
+            return Err(MockMiddlewareError::GetTransactionReceipt(i as i32));
+        }
+
+        if !self.get_transaction_receipt[i] {
+            Ok(None)
+        } else {
+            let mut receipt = TransactionReceipt::default();
+            receipt.transaction_hash = transaction_hash.into();
+
+            let j = unsafe { GLOBAL.get_block_number_n as usize } - 1;
+            let block_number = max(0, self.get_block_number[j]);
+            receipt.block_number = Some(u64(block_number));
+            Ok(Some(receipt))
+        }
     }
 
     async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
@@ -187,8 +189,8 @@ impl Middleware for MockMiddleware {
         _: Option<BlockId>,
     ) -> Result<PendingTransaction<'_, Self::Provider>, Self::Error> {
         unsafe {
-            STATE.send_transaction_n += 1;
-            STATE.sign_transaction_n -= 1;
+            GLOBAL.send_transaction_n += 1;
+            GLOBAL.sign_transaction_n -= 1;
         }
         let tx: &TypedTransaction = &tx.into();
         let signature = self.sign_transaction(tx, *tx.from().unwrap()).await?;
@@ -201,7 +203,7 @@ impl Middleware for MockMiddleware {
         let pending_transaction =
             PendingTransaction::new(hash, self.provider());
         unsafe {
-            STATE.sent_transactions.push(*pending_transaction);
+            GLOBAL.sent_transactions.push(*pending_transaction);
         }
         Ok(pending_transaction)
     }
@@ -212,7 +214,7 @@ impl Middleware for MockMiddleware {
         _: Address,
     ) -> Result<Signature, Self::Error> {
         unsafe {
-            STATE.sign_transaction_n += 1;
+            GLOBAL.sign_transaction_n += 1;
         }
         let signer: LocalWallet =
             "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
@@ -231,4 +233,40 @@ fn u64(n: u32) -> U64 {
 
 fn u256(n: u32) -> U256 {
     U256::from_dec_str(&n.to_string()).unwrap()
+}
+
+// Global state used to simulate the blockchain.
+
+pub struct Global {
+    pub nonce: u32,
+    pub sent_transactions: Vec<TxHash>,
+
+    // Stores how many times each function was called.
+    pub estimate_gas_n: i32,
+    pub get_block_n: i32,
+    pub get_block_number_n: i32,
+    pub estimate_eip1559_fees_n: i32,
+    pub get_transaction_count_n: i32,
+    pub get_transaction_receipt_n: i32,
+    pub send_transaction_n: i32,
+    pub sign_transaction_n: i32,
+}
+
+static mut GLOBAL: Global = Global::default();
+
+impl Global {
+    const fn default() -> Global {
+        Global {
+            nonce: 1,
+            sent_transactions: Vec::new(),
+            estimate_gas_n: 0,
+            get_block_n: 0,
+            get_block_number_n: 0,
+            estimate_eip1559_fees_n: 0,
+            get_transaction_count_n: 0,
+            get_transaction_receipt_n: 0,
+            send_transaction_n: 0,
+            sign_transaction_n: 0,
+        }
+    }
 }

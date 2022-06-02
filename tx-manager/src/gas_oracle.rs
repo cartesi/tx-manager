@@ -15,7 +15,7 @@ pub trait GasOracle: Debug {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GasInfo {
-    pub gas_price: i32, // 10 * gwei
+    pub gas_price: i32, // 10 * gwei // TODO: should be wei?
     pub mining_time: Option<Duration>,
     pub block_time: Option<Duration>,
 }
