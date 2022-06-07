@@ -1,12 +1,19 @@
 mod mocks;
 
 use anyhow::anyhow;
+use ethers::core::rand;
+use ethers::middleware::signer::SignerMiddleware;
+use ethers::providers::{Http, Provider};
+use ethers::signers::{LocalWallet, Signer};
 use ethers::types::{Address, TransactionReceipt, TxHash, U256, U64};
+// use ethers::utils::Geth;
 use serial_test::serial;
 use std::time::Duration;
 
-use tx_manager::gas_oracle::GasInfo;
+use tx_manager::database::FileSystemDatabase;
+use tx_manager::gas_oracle::{ETHGasStationOracle, GasInfo};
 use tx_manager::manager::{Manager, ManagerError, State};
+use tx_manager::time::DefaultTime;
 use tx_manager::transaction::{Priority, Transaction, Value};
 
 use mocks::{
@@ -31,6 +38,55 @@ macro_rules! assert_err(
         }
     };
 );
+
+#[tokio::test]
+async fn test_manager_with_geth() {
+    Data::setup();
+    let transaction = Transaction {
+        priority: Priority::Normal,
+        from: "0xd631c4a28b6ad5bb5d6b0de6f17a0f13b5fc64f0"
+            .parse()
+            .unwrap(),
+        to: "0x5f68ec5f2bc8ba86a31c4b015b517e165be9b47b"
+            .parse()
+            .unwrap(),
+        value: Value::Number(U256::from(10e18 as u64)), // 10 ethers
+        confirmations: 3,
+    };
+
+    let port = 8545u16;
+    // let block_time = 1u64;
+    let url = format!("http://localhost:{}", port).to_string();
+
+    let chain_id = 1337u64;
+
+    let provider = Provider::<Http>::try_from(url).unwrap();
+    let unused = &mut rand::thread_rng();
+    let signer = LocalWallet::new(unused).with_chain_id(chain_id);
+    let provider = SignerMiddleware::new(provider, signer);
+
+    let gas_oracle = ETHGasStationOracle::new("api key");
+    let database = FileSystemDatabase::new("./test_database.json");
+    let result = Manager::new_(
+        provider,
+        gas_oracle,
+        database,
+        Box::new(DefaultTime),
+        chain_id.into(),
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+    )
+    .await;
+
+    assert_ok!(result);
+    let (manager, _) = result.unwrap();
+
+    // let geth = Geth::new().port(port).block_time(block_time).spawn();
+    let result = manager.send_transaction(transaction, None).await;
+    // drop(geth);
+    assert_ok!(result);
+    let (_manager, _receipt) = result.unwrap();
+}
 
 #[tokio::test]
 #[serial]
@@ -527,7 +583,7 @@ async fn run_send_transaction(
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);
     gas_oracle.gas_info_output = Some(GasInfo {
-        gas_price: 300,
+        gas_price: U256::from_dec_str("3000000000000").unwrap(),
         mining_time: Some(Duration::ZERO),
         block_time: Some(Duration::ZERO),
     });

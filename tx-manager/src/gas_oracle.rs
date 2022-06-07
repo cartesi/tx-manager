@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use core::time::Duration;
+use ethers::types::U256;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use std::fmt::Debug;
@@ -15,7 +16,7 @@ pub trait GasOracle: Debug {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GasInfo {
-    pub gas_price: i32, // 10 * gwei // TODO: should be wei?
+    pub gas_price: U256, // in wei
     pub mining_time: Option<Duration>,
     pub block_time: Option<Duration>,
 }
@@ -57,11 +58,11 @@ impl GasOracle for ETHGasStationOracle {
 #[derive(Debug, Deserialize)]
 struct ETHGasStationResponse {
     block_time: f32,
-    fastest: i32,
-    fast: i32,
-    average: i32,
+    fastest: String,
+    fast: String,
+    average: String,
     #[serde(rename = "safeLow")]
-    low: i32,
+    low: String,
     #[serde(rename = "fastestWait")]
     fastest_time: f32,
     #[serde(rename = "fastWait")]
@@ -80,6 +81,10 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
             Priority::High => (response.fast, response.fast_time),
             Priority::ASAP => (response.fastest, response.fastest_time),
         };
+
+        // from 10*gwei to wei
+        let mut gas_price = U256::from_dec_str(&gas_price.to_string()).unwrap();
+        gas_price = gas_price.checked_mul(U256::exp10(10)).unwrap();
 
         return GasInfo {
             gas_price,

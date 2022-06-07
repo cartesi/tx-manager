@@ -3,7 +3,7 @@ use ethers::providers::Middleware;
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
     Address, BlockId, BlockNumber, Eip1559TransactionRequest, NameOrAddress,
-    TransactionReceipt, TxHash, H256, U256, U64,
+    TransactionReceipt, H256, U256, U64,
 };
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
@@ -161,7 +161,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         // Estimating gas prices and sleep times.
         let gas_info = self.gas_info(transaction.priority).await?;
-        let max_fee = U256::from(gas_info.gas_price);
+        let max_fee = gas_info.gas_price;
         let max_priority_fee = self.get_max_priority_fee(max_fee).await?;
         if let Some(block_time) = gas_info.block_time {
             self.block_time = block_time;
@@ -189,12 +189,35 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         let start_time: Instant;
         {
-            // Storing information about the pending
-            // transaction in the database.
+            /*
             let typed_transaction = &TypedTransaction::Eip1559(request.clone());
             let transaction_hash =
                 self.transaction_hash(&typed_transaction).await?;
-            state.pending_transactions.insert(0, transaction_hash);
+            */
+
+            // Sending the transaction.
+            let pending_transaction = self
+                .provider
+                .send_transaction(request, None)
+                .await
+                .map_err(ManagerError::Middleware)?;
+            let pending_transaction_hash =
+                H256(*pending_transaction.as_fixed_bytes());
+
+            start_time = Instant::now();
+
+            /*
+            assert_eq!(
+                transaction_hash, pending_transaction_hash,
+                "stored hash is different from the pending transaction's hash"
+            );
+            */
+
+            // Storing information about the pending
+            // transaction in the database.
+            state
+                .pending_transactions
+                .insert(0, pending_transaction_hash);
             self.db
                 .set_state(state)
                 .await
@@ -204,16 +227,6 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                 "The manager has {:?} pending transactions.",
                 state.pending_transactions.len()
             );
-
-            // Sending the transaction.
-            let pending_transaction = self
-                .provider
-                .send_transaction(request, None)
-                .await
-                .map_err(ManagerError::Middleware)?;
-            assert_eq!(transaction_hash, *pending_transaction);
-
-            start_time = Instant::now();
         }
 
         // Confirming the transaction.
@@ -315,14 +328,13 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         match gas_info {
             Ok(gas_info) => Ok(gas_info),
             Err(err1) => {
-                // TODO: move this to the gas_oracle?
                 let (max_fee, _max_priority_fee) = self
                     .provider
                     .estimate_eip1559_fees(None)
                     .await
                     .map_err(|err2| ManagerError::GasOracle(err1, err2))?;
                 Ok(GasInfo {
-                    gas_price: max_fee.as_u32() as i32,
+                    gas_price: max_fee,
                     mining_time: None,
                     block_time: None,
                 })
@@ -368,6 +380,12 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .ok_or(ManagerError::Error("internal error 1".to_string()))?
             .base_fee_per_gas
             .ok_or(ManagerError::Error("internal error 2".to_string()))?;
+        assert!(
+            max_fee > base_fee,
+            "max_fee({:?}) <= base_fee({:?})",
+            max_fee,
+            base_fee
+        );
         Ok(max_fee - base_fee)
     }
 
@@ -388,7 +406,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn transaction_hash(
         &self,
         typed_transaction: &TypedTransaction,
-    ) -> Result<TxHash, ManagerError<M>> {
+    ) -> Result<H256, ManagerError<M>> {
         let from = *typed_transaction.from().unwrap();
         let signature = self
             .provider
@@ -396,7 +414,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             .await
             .map_err(ManagerError::Middleware)?;
         let bytes = typed_transaction.rlp_signed(self.chain_id, &signature);
-        Ok(TxHash(keccak256(bytes)))
+        let hash = keccak256(bytes);
+        Ok(H256(hash))
     }
 
     fn wait_time(
