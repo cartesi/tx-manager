@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
 use tx_manager::manager;
@@ -25,26 +24,41 @@ impl Database {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum DatabaseError {
+    #[error("database mock error: set state")]
+    SetState,
+
+    #[error("database mock error: get state")]
+    GetState,
+
+    #[error("database mock error: clear state")]
+    ClearState,
+}
+
 #[async_trait]
 impl tx_manager::database::Database for Database {
-    async fn set_state(&mut self, _: &manager::State) -> Result<()> {
+    type Error = DatabaseError;
+
+    async fn set_state(
+        &mut self,
+        _: &manager::State,
+    ) -> Result<(), Self::Error> {
         unsafe { GLOBAL.set_state_n += 1 };
-        self.set_state_output
-            .ok_or(anyhow!(DatabaseError::SetState))
+        self.set_state_output.ok_or(DatabaseError::SetState)
     }
 
-    async fn get_state(&self) -> Result<Option<manager::State>> {
+    async fn get_state(&self) -> Result<Option<manager::State>, Self::Error> {
         unsafe { GLOBAL.get_state_n += 1 };
         self.get_state_output
             .as_ref()
-            .ok_or(anyhow!(DatabaseError::GetState))
+            .ok_or(DatabaseError::GetState)
             .map(|x| x.clone())
     }
 
-    async fn clear_state(&mut self) -> Result<()> {
+    async fn clear_state(&mut self) -> Result<(), Self::Error> {
         unsafe { GLOBAL.clear_state_n += 1 };
-        self.clear_state_output
-            .ok_or(anyhow!(DatabaseError::ClearState))
+        self.clear_state_output.ok_or(DatabaseError::ClearState)
     }
 }
 
@@ -70,16 +84,4 @@ impl Global {
             GLOBAL = Global::default();
         }
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum DatabaseError {
-    #[error("database mock error: set state")]
-    SetState,
-
-    #[error("database mock error: get state")]
-    GetState,
-
-    #[error("database mock error: clear state")]
-    ClearState,
 }

@@ -11,6 +11,8 @@ use crate::transaction::Priority;
 
 #[async_trait]
 pub trait GasOracle: Debug {
+    // TODO: type Error: std::error::Error;
+
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo>;
 }
 
@@ -36,6 +38,8 @@ impl ETHGasStationOracle {
 
 #[async_trait]
 impl GasOracle for ETHGasStationOracle {
+    // type Error = String;
+
     #[tracing::instrument]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo> {
         let url = format!(

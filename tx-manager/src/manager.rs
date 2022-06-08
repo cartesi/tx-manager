@@ -7,6 +7,7 @@ use ethers::types::{
 };
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
+use std::default::Default;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::info;
@@ -17,21 +18,18 @@ use crate::time::{DefaultTime, Time};
 use crate::transaction::{Priority, Transaction};
 
 #[derive(Debug, thiserror::Error)]
-pub enum ManagerError<M: Middleware> {
+pub enum ManagerError<M: Middleware, DB: Database> {
     #[error("manager: {0}")]
     Error(String),
 
     #[error("middleware: {0}")]
     Middleware(M::Error),
 
-    #[error("set state: {0}")]
-    SetState(anyhow::Error),
+    #[error("database: {0}")]
+    Database(DB::Error),
 
-    #[error("get state: {0}")]
-    GetState(anyhow::Error),
-
-    #[error("clear state: {0}")]
-    ClearState(anyhow::Error, TransactionReceipt),
+    #[error("error clearing the state in the database: {0}")]
+    ClearState(DB::Error, TransactionReceipt), // TODO
 
     #[error("gas oracle: {0}")]
     GasOracle(anyhow::Error, M::Error),
@@ -41,66 +39,64 @@ pub enum ManagerError<M: Middleware> {
 pub struct State {
     pub nonce: Option<U256>,
     pub transaction: Transaction,
-    pub pending_transactions: Vec<H256>, // hashes
+    /// Hashes of the pending transactions sent to the transaction pool.
+    pub pending_transactions: Vec<H256>,
 }
 
 #[derive(Debug)]
-pub struct Manager<M: Middleware, GO: GasOracle, DB: Database> {
+pub struct Configuration<T: Time> {
+    /// Time the transaction manager will wait to check if a transaction was
+    /// mined by a block.
+    pub transaction_mining_interval: Duration,
+    /// Time the transaction manager will wait to check if a block was mined.
+    pub block_time: Duration,
+    /// Dependency that handles process sleeping and calculating elapsed time.
+    pub time: T,
+}
+
+impl Default for Configuration<DefaultTime> {
+    fn default() -> Self {
+        Self {
+            transaction_mining_interval: Duration::from_secs(60),
+            block_time: Duration::from_secs(20),
+            time: DefaultTime,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     provider: M,
     gas_oracle: GO,
     db: DB,
-    time: Box<dyn Time>,
     chain_id: U64,
-    mining_time: Duration,
-    block_time: Duration,
+    configuration: Configuration<T>,
 }
 
-impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
-    /*
-     * Sends and confirms any pending transaction persisted in the database
-     * before returning an instance of the transaction manager.
-     */
+impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
+    Manager<M, GO, DB, T>
+{
+    /// Sends and confirms any pending transaction persisted in the database
+    /// before returning an instance of the transaction manager.
     pub async fn new(
         provider: M,
         gas_oracle: GO,
         db: DB,
         chain_id: U64,
-    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError<M>> {
-        Self::new_(
+        configuration: Configuration<T>,
+    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError<M, DB>> {
+        let mut manager = Self {
             provider,
             gas_oracle,
             db,
-            Box::new(DefaultTime),
             chain_id,
-            Duration::from_secs(60),
-            Duration::from_secs(20),
-        )
-        .await
-    }
-
-    pub async fn new_(
-        provider: M,
-        gas_oracle: GO,
-        db: DB,
-        time: Box<dyn Time>,
-        chain_id: U64,
-        mining_time: Duration,
-        block_time: Duration,
-    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError<M>> {
-        let mut manager = Manager {
-            provider,
-            gas_oracle,
-            db,
-            time,
-            chain_id,
-            mining_time,
-            block_time,
+            configuration,
         };
         let transaction_receipt = if let Some(mut state) = manager
             .db
             .get_state()
             .await
-            .map_err(ManagerError::GetState)?
+            .map_err(ManagerError::Database)?
         {
             let wait_time =
                 manager.wait_time(state.transaction.confirmations, None);
@@ -129,7 +125,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         mut self,
         transaction: Transaction,
         polling_time: Option<Duration>,
-    ) -> Result<(Self, TransactionReceipt), ManagerError<M>> {
+    ) -> Result<(Self, TransactionReceipt), ManagerError<M, DB>> {
         let mut state = State {
             nonce: None,
             transaction,
@@ -154,7 +150,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         &mut self,
         state: &mut State,
         polling_time: Option<Duration>,
-    ) -> Result<TransactionReceipt, ManagerError<M>> {
+    ) -> Result<TransactionReceipt, ManagerError<M, DB>> {
         info!("(Re)sending the transaction.");
 
         let transaction = &state.transaction;
@@ -164,7 +160,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         let max_fee = gas_info.gas_price;
         let max_priority_fee = self.get_max_priority_fee(max_fee).await?;
         if let Some(block_time) = gas_info.block_time {
-            self.block_time = block_time;
+            self.configuration.block_time = block_time;
         }
         let wait_time = self
             .wait_time(state.transaction.confirmations, gas_info.mining_time);
@@ -221,7 +217,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             self.db
                 .set_state(state)
                 .await
-                .map_err(ManagerError::SetState)?;
+                .map_err(ManagerError::Database)?;
 
             info!(
                 "The manager has {:?} pending transactions.",
@@ -255,7 +251,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
         wait_time: Duration,
         start_time: Instant,
         sleep_first: bool,
-    ) -> Result<TransactionReceipt, ManagerError<M>> {
+    ) -> Result<TransactionReceipt, ManagerError<M, DB>> {
         assert!(state.nonce.is_some());
 
         info!(
@@ -263,7 +259,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
             state.nonce.unwrap()
         );
 
-        let polling_time = polling_time.unwrap_or(self.mining_time);
+        let polling_time = polling_time
+            .unwrap_or(self.configuration.transaction_mining_interval);
         let mut sleep_time = if sleep_first {
             polling_time
         } else {
@@ -272,7 +269,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
 
         loop {
             // Sleeping.
-            self.time.sleep(sleep_time).await;
+            self.configuration.time.sleep(sleep_time).await;
 
             // Were any of the transactions mined?
             let receipt = self.get_mined_transaction(state).await?;
@@ -300,13 +297,14 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
                         return Ok(receipt);
                     }
 
-                    sleep_time = self.block_time;
+                    sleep_time = self.configuration.block_time;
                 }
                 None => {
                     info!("No transaction mined.");
 
                     // Have I waited too much?
-                    let elapsed_time = self.time.elapsed(start_time);
+                    let elapsed_time =
+                        self.configuration.time.elapsed(start_time);
                     if elapsed_time > wait_time {
                         info!("I have waited too much!");
                         return self
@@ -323,7 +321,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn gas_info(
         &self,
         priority: Priority,
-    ) -> Result<GasInfo, ManagerError<M>> {
+    ) -> Result<GasInfo, ManagerError<M, DB>> {
         let gas_info = self.gas_oracle.gas_info(priority).await;
         match gas_info {
             Ok(gas_info) => Ok(gas_info),
@@ -345,7 +343,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn get_mined_transaction(
         &self,
         state: &mut State,
-    ) -> Result<Option<TransactionReceipt>, ManagerError<M>> {
+    ) -> Result<Option<TransactionReceipt>, ManagerError<M, DB>> {
         for (i, &hash) in state.pending_transactions.iter().enumerate() {
             if let Some(receipt) = self
                 .provider
@@ -366,7 +364,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn get_max_priority_fee(
         &self,
         max_fee: U256,
-    ) -> Result<U256, ManagerError<M>> {
+    ) -> Result<U256, ManagerError<M, DB>> {
         let current_block = self
             .provider
             .get_block_number()
@@ -392,7 +390,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn get_nonce(
         &self,
         address: Address,
-    ) -> Result<U256, ManagerError<M>> {
+    ) -> Result<U256, ManagerError<M, DB>> {
         self.provider
             .get_transaction_count(
                 NameOrAddress::Address(address),
@@ -406,7 +404,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     async fn transaction_hash(
         &self,
         typed_transaction: &TypedTransaction,
-    ) -> Result<H256, ManagerError<M>> {
+    ) -> Result<H256, ManagerError<M, DB>> {
         let from = *typed_transaction.from().unwrap();
         let signature = self
             .provider
@@ -421,10 +419,11 @@ impl<M: Middleware, GO: GasOracle, DB: Database> Manager<M, GO, DB> {
     fn wait_time(
         &self,
         confirmations: u32,
-        mining_time: Option<Duration>,
+        transaction_mining_interval: Option<Duration>,
     ) -> Duration {
-        let mining_time = mining_time.unwrap_or(Duration::from_secs(300));
-        let confirmation_time = confirmations * self.block_time;
-        mining_time + confirmation_time
+        let transaction_mining_interval =
+            transaction_mining_interval.unwrap_or(Duration::from_secs(300));
+        let confirmation_time = confirmations * self.configuration.block_time;
+        transaction_mining_interval + confirmation_time
     }
 }
