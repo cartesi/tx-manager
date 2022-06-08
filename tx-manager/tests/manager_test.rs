@@ -22,6 +22,8 @@ use mocks::{
     MockMiddlewareError, Time,
 };
 
+type MockManagerError = ManagerError<MockMiddleware, GasOracle, Database>;
+
 macro_rules! assert_ok(
     ($result: expr) => {
         match $result {
@@ -149,7 +151,7 @@ async fn test_manager_new() {
             Configuration::default(),
         )
         .await;
-        let expected_err: ManagerError<MockMiddleware, Database> =
+        let expected_err: MockManagerError =
             ManagerError::Database(DatabaseError::GetState);
         assert_err!(result, expected_err);
     }
@@ -208,11 +210,10 @@ async fn test_manager_new() {
             },
         )
         .await;
-        let expected_err: ManagerError<MockMiddleware, Database> =
-            ManagerError::ClearState(
-                DatabaseError::ClearState,
-                transaction_receipt,
-            );
+        let expected_err: MockManagerError = ManagerError::ClearState(
+            DatabaseError::ClearState,
+            transaction_receipt,
+        );
         assert_err!(result, expected_err);
     }
 }
@@ -349,12 +350,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::GetBlockNumber,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::GetBlockNumber);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_block_number_n)
     }
 
@@ -366,12 +364,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::GetBlock,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::GetBlock);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_block_n)
     }
 
@@ -383,12 +378,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::GetTransactionCount,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::GetTransactionCount);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n)
     }
 
@@ -400,12 +392,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::EstimateGas,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::EstimateGas);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n)
     }
 
@@ -417,12 +406,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::SignTransaction,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::SignTransaction);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n)
     }
 
@@ -434,12 +420,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::SendTransaction,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::SendTransaction);
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().send_transaction_n)
     }
 
@@ -451,12 +434,10 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::GetTransactionReceipt(1),
-            )
+        let expected_err: MockManagerError = ManagerError::Middleware(
+            MockMiddlewareError::GetTransactionReceipt(1),
         );
+        assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n)
     }
 
@@ -469,12 +450,9 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Middleware(
-                MockMiddlewareError::GetBlockNumber,
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Middleware(MockMiddlewareError::GetBlockNumber);
+        assert_err!(result, expected_err);
         assert_eq!(2, MockMiddleware::global().get_block_number_n)
     }
 }
@@ -507,13 +485,11 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::GasOracle(
-                anyhow!(GasOracleError::GasInfo,),
-                MockMiddlewareError::EstimateEIP1559Fees
-            )
+        let expected_err: MockManagerError = ManagerError::GasOracle(
+            GasOracleError::GasInfo,
+            MockMiddlewareError::EstimateEIP1559Fees,
         );
+        assert_err!(result, expected_err);
         assert_eq!(1, GasOracle::global().gas_info_n);
         assert_eq!(1, MockMiddleware::global().estimate_eip1559_fees_n);
     }
@@ -532,12 +508,9 @@ async fn test_manager_send_transaction_basic_database_errors() {
                 (middleware, gas_oracle, db)
             })
             .await;
-        assert_err!(
-            result,
-            ManagerError::<MockMiddleware, Database>::Database(
-                DatabaseError::SetState
-            )
-        );
+        let expected_err: MockManagerError =
+            ManagerError::Database(DatabaseError::SetState);
+        assert_err!(result, expected_err);
         assert_eq!(1, Database::global().set_state_n);
     }
 
@@ -616,7 +589,7 @@ async fn run_send_transaction(
         GasOracle,
         Database,
     ) -> (MockMiddleware, GasOracle, Database),
-) -> Result<TransactionReceipt, ManagerError<MockMiddleware, Database>> {
+) -> Result<TransactionReceipt, MockManagerError> {
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);
     gas_oracle.gas_info_output = Some(GasInfo {

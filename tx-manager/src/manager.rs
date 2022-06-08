@@ -18,7 +18,7 @@ use crate::time::{DefaultTime, Time};
 use crate::transaction::{Priority, Transaction};
 
 #[derive(Debug, thiserror::Error)]
-pub enum ManagerError<M: Middleware, DB: Database> {
+pub enum ManagerError<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("manager: {0}")]
     Error(String),
 
@@ -32,7 +32,7 @@ pub enum ManagerError<M: Middleware, DB: Database> {
     ClearState(DB::Error, TransactionReceipt), // TODO
 
     #[error("gas oracle: {0}")]
-    GasOracle(anyhow::Error, M::Error),
+    GasOracle(GO::Error, M::Error),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,7 +84,8 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
         db: DB,
         chain_id: U64,
         configuration: Configuration<T>,
-    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError<M, DB>> {
+    ) -> Result<(Self, Option<TransactionReceipt>), ManagerError<M, GO, DB>>
+    {
         let mut manager = Self {
             provider,
             gas_oracle,
@@ -125,7 +126,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
         mut self,
         transaction: Transaction,
         polling_time: Option<Duration>,
-    ) -> Result<(Self, TransactionReceipt), ManagerError<M, DB>> {
+    ) -> Result<(Self, TransactionReceipt), ManagerError<M, GO, DB>> {
         let mut state = State {
             nonce: None,
             transaction,
@@ -150,7 +151,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
         &mut self,
         state: &mut State,
         polling_time: Option<Duration>,
-    ) -> Result<TransactionReceipt, ManagerError<M, DB>> {
+    ) -> Result<TransactionReceipt, ManagerError<M, GO, DB>> {
         info!("(Re)sending the transaction.");
 
         let transaction = &state.transaction;
@@ -251,7 +252,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
         wait_time: Duration,
         start_time: Instant,
         sleep_first: bool,
-    ) -> Result<TransactionReceipt, ManagerError<M, DB>> {
+    ) -> Result<TransactionReceipt, ManagerError<M, GO, DB>> {
         assert!(state.nonce.is_some());
 
         info!(
@@ -321,7 +322,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     async fn gas_info(
         &self,
         priority: Priority,
-    ) -> Result<GasInfo, ManagerError<M, DB>> {
+    ) -> Result<GasInfo, ManagerError<M, GO, DB>> {
         let gas_info = self.gas_oracle.gas_info(priority).await;
         match gas_info {
             Ok(gas_info) => Ok(gas_info),
@@ -343,7 +344,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     async fn get_mined_transaction(
         &self,
         state: &mut State,
-    ) -> Result<Option<TransactionReceipt>, ManagerError<M, DB>> {
+    ) -> Result<Option<TransactionReceipt>, ManagerError<M, GO, DB>> {
         for (i, &hash) in state.pending_transactions.iter().enumerate() {
             if let Some(receipt) = self
                 .provider
@@ -364,7 +365,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     async fn get_max_priority_fee(
         &self,
         max_fee: U256,
-    ) -> Result<U256, ManagerError<M, DB>> {
+    ) -> Result<U256, ManagerError<M, GO, DB>> {
         let current_block = self
             .provider
             .get_block_number()
@@ -390,7 +391,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     async fn get_nonce(
         &self,
         address: Address,
-    ) -> Result<U256, ManagerError<M, DB>> {
+    ) -> Result<U256, ManagerError<M, GO, DB>> {
         self.provider
             .get_transaction_count(
                 NameOrAddress::Address(address),
@@ -404,7 +405,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     async fn transaction_hash(
         &self,
         typed_transaction: &TypedTransaction,
-    ) -> Result<H256, ManagerError<M, DB>> {
+    ) -> Result<H256, ManagerError<M, GO, DB>> {
         let from = *typed_transaction.from().unwrap();
         let signature = self
             .provider

@@ -1,4 +1,3 @@
-use anyhow::{bail, Result};
 use async_trait::async_trait;
 use core::time::Duration;
 use ethers::types::U256;
@@ -11,9 +10,12 @@ use crate::transaction::Priority;
 
 #[async_trait]
 pub trait GasOracle: Debug {
-    // TODO: type Error: std::error::Error;
+    type Error: std::error::Error;
 
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo>;
+    async fn gas_info(
+        &self,
+        priority: Priority,
+    ) -> Result<GasInfo, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +26,18 @@ pub struct GasInfo {
 }
 
 // Implementation using the ETH Gas Station API.
+
+#[derive(Debug, thiserror::Error)]
+pub enum GasOracleError {
+    #[error("GET request error: {0}")]
+    Request(reqwest::Error),
+
+    #[error("invalid status code: {0}")]
+    StatusCode(reqwest::StatusCode),
+
+    #[error("could not parse the request's response: {0}")]
+    ParseResponse(serde_json::Error),
+}
 
 #[derive(Debug)]
 pub struct ETHGasStationOracle {
@@ -38,21 +52,26 @@ impl ETHGasStationOracle {
 
 #[async_trait]
 impl GasOracle for ETHGasStationOracle {
-    // type Error = String;
+    type Error = GasOracleError;
 
     #[tracing::instrument]
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo> {
+    async fn gas_info(
+        &self,
+        priority: Priority,
+    ) -> Result<GasInfo, Self::Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
         );
 
-        let res = reqwest::get(url).await?;
+        let res = reqwest::get(url).await.map_err(GasOracleError::Request)?;
         if res.status() != StatusCode::OK {
-            bail!("invalid status code: {}", res.status());
+            return Err(GasOracleError::StatusCode(res.status()));
         }
 
-        let response = serde_json::from_slice(&res.bytes().await?)?;
+        let bytes = &res.bytes().await.map_err(GasOracleError::Request)?;
+        let response = serde_json::from_slice(bytes)
+            .map_err(GasOracleError::ParseResponse)?;
         let gas_info = (response, priority).into();
         info!("gas info: {:?}", gas_info);
         return Ok(gas_info);
@@ -62,11 +81,11 @@ impl GasOracle for ETHGasStationOracle {
 #[derive(Debug, Deserialize)]
 struct ETHGasStationResponse {
     block_time: f32,
-    fastest: String,
-    fast: String,
-    average: String,
+    fastest: u64,
+    fast: u64,
+    average: u64,
     #[serde(rename = "safeLow")]
-    low: String,
+    low: u64,
     #[serde(rename = "fastestWait")]
     fastest_time: f32,
     #[serde(rename = "fastWait")]
@@ -87,7 +106,7 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
         };
 
         // from 10*gwei to wei
-        let mut gas_price = U256::from_dec_str(&gas_price.to_string()).unwrap();
+        let mut gas_price = U256::from(gas_price);
         gas_price = gas_price.checked_mul(U256::exp10(10)).unwrap();
 
         return GasInfo {
@@ -109,34 +128,46 @@ mod tests {
     async fn test_eth_gas_station_oracle() {
         // setup
         tracing_subscriber::fmt::init();
-        let gas_oracle = ETHGasStationOracle::new(
-            "c5396ceb50a0c347dba8de605f47ffc8e9fd347495b57da6a2d537f78848",
-        );
+
+        // an API key is not necessary
+        let gas_oracle = ETHGasStationOracle::new("works");
         let invalid_gas_oracle1 = ETHGasStationOracle::new("invalid");
         let invalid_gas_oracle2 = ETHGasStationOracle::new("");
 
-        // ok => priority low
-        let result = gas_oracle.gas_info(Priority::Low).await;
-        assert!(result.is_ok());
+        {
+            // ok => priority low
+            let result = gas_oracle.gas_info(Priority::Low).await;
+            assert!(result.is_ok(), "{:?}", result);
+            let gas_info_low = result.unwrap();
 
-        // ok => priority normal
-        let result = gas_oracle.gas_info(Priority::Normal).await;
-        assert!(result.is_ok());
+            // ok => priority normal
+            let result = gas_oracle.gas_info(Priority::Normal).await;
+            assert!(result.is_ok());
+            let gas_info_normal = result.unwrap();
 
-        // ok => priority high
-        let result = gas_oracle.gas_info(Priority::High).await;
-        assert!(result.is_ok());
+            // ok => priority high
+            let result = gas_oracle.gas_info(Priority::High).await;
+            assert!(result.is_ok());
+            let gas_info_high = result.unwrap();
 
-        // ok => priority ASAP
-        let result = gas_oracle.gas_info(Priority::ASAP).await;
-        assert!(result.is_ok());
+            // ok => priority ASAP
+            let result = gas_oracle.gas_info(Priority::ASAP).await;
+            assert!(result.is_ok());
+            let gas_info_asap = result.unwrap();
 
-        // ok => invalid API key works (for some reason)
-        let result = invalid_gas_oracle1.gas_info(Priority::Normal).await;
-        assert!(result.is_ok());
+            assert!(gas_info_low.gas_price <= gas_info_normal.gas_price);
+            assert!(gas_info_normal.gas_price <= gas_info_high.gas_price);
+            assert!(gas_info_high.gas_price <= gas_info_asap.gas_price);
+        }
 
-        // ok => empty API key works (for some reason)
-        let result = invalid_gas_oracle2.gas_info(Priority::Normal).await;
-        assert!(result.is_ok());
+        {
+            // ok => invalid API key works (for some reason)
+            let result = invalid_gas_oracle1.gas_info(Priority::Normal).await;
+            assert!(result.is_ok());
+
+            // ok => empty API key works (for some reason)
+            let result = invalid_gas_oracle2.gas_info(Priority::Normal).await;
+            assert!(result.is_ok());
+        }
     }
 }
