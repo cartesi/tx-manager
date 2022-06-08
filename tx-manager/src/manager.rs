@@ -29,7 +29,7 @@ pub enum ManagerError<M: Middleware, GO: GasOracle, DB: Database> {
     Database(DB::Error),
 
     #[error("error clearing the state in the database: {0}")]
-    ClearState(DB::Error, TransactionReceipt), // TODO
+    ClearState(DB::Error, TransactionReceipt), // TODO: ask
 
     #[error("gas oracle: {0}")]
     GasOracle(GO::Error, M::Error),
@@ -77,7 +77,15 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     Manager<M, GO, DB, T>
 {
     /// Sends and confirms any pending transaction persisted in the database
-    /// before returning an instance of the transaction manager.
+    /// before returning an instance of the transaction manager. In case a
+    /// pending transaction was mined, it's receipt is also returned.
+    #[tracing::instrument(skip(
+        provider,
+        gas_oracle,
+        db,
+        chain_id,
+        configuration
+    ))]
     pub async fn new(
         provider: M,
         gas_oracle: GO,
@@ -121,7 +129,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
         Ok((manager, transaction_receipt))
     }
 
-    #[tracing::instrument(skip(self, transaction, polling_time,))]
+    #[tracing::instrument(skip(self, transaction, polling_time))]
     pub async fn send_transaction(
         mut self,
         transaction: Transaction,
