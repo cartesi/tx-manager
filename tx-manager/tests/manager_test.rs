@@ -44,108 +44,6 @@ macro_rules! assert_err(
     };
 );
 
-/// How long we will wait for geth to indicate that it is ready.
-const GETH_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
-
-/// The geth command.
-const GETH: &str = "geth";
-
-/// The exposed APIs.
-const API: &str = "eth,net,web3,txpool,personal,debug";
-
-pub struct GethNode {
-    pub url: String,
-    process: std::process::Child,
-}
-
-impl GethNode {
-    pub fn start(port: u16, block_time: u16) -> GethNode {
-        let mut cmd = Command::new(GETH);
-
-        // geth uses stderr for its logs
-        cmd.stderr(std::process::Stdio::piped());
-
-        // Open the HTTP API
-        cmd.arg("--http");
-        cmd.arg("--http.port").arg(port.to_string());
-        cmd.arg("--http.api").arg(API);
-
-        // Open the WS API
-        cmd.arg("--ws");
-        cmd.arg("--ws.port").arg(port.to_string());
-        cmd.arg("--ws.api").arg(API);
-
-        // Dev mode with custom block time
-        cmd.arg("--dev");
-        cmd.arg("--dev.period").arg(block_time.to_string());
-
-        let mut child = cmd.spawn().expect("couldnt start geth");
-
-        let stdout = child
-            .stderr
-            .expect("Unable to get stderr for geth child process");
-
-        let start = Instant::now();
-        let mut reader = BufReader::new(stdout);
-
-        loop {
-            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS)
-                <= Instant::now()
-            {
-                panic!(
-                    "Timed out waiting for geth to start. Is geth installed?"
-                )
-            }
-
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .expect("Failed to read line from geth process");
-
-            // geth 1.9.23 uses "server started" while 1.9.18
-            // uses "endpoint opened"
-            if line.contains("HTTP endpoint opened")
-                || line.contains("HTTP server started")
-            {
-                break;
-            }
-        }
-
-        child.stderr = Some(reader.into_inner());
-
-        GethNode {
-            process: child,
-            url: format!("http://localhost:{}", port).to_string(),
-        }
-    }
-
-    pub fn coinbase(&self) -> String {
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", "eth.coinbase"])
-            .output()
-            .unwrap()
-            .stdout;
-        let s = std::str::from_utf8(&output).unwrap();
-        let hash: String = serde_json::from_str(s).unwrap();
-        hash
-    }
-
-    pub fn new_account(&self) -> String {
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", "personal.newAccount(\"\")"])
-            .output()
-            .unwrap()
-            .stdout;
-        let s = std::str::from_utf8(&output).unwrap();
-        let hash: String = serde_json::from_str(s).unwrap();
-        hash
-    }
-
-    pub fn drop(mut self) {
-        let _ = self.process.kill().expect("could not kill geth");
-    }
-}
-
 #[tokio::test]
 async fn test_manager_with_geth() {
     let geth = GethNode::start(8545, 14);
@@ -155,11 +53,17 @@ async fn test_manager_with_geth() {
     let future = AssertUnwindSafe(async {
         Data::setup();
 
+        let new_account = geth.new_account();
+        let new_account_balance =
+            geth.check_balance_in_ethers(new_account.clone());
+        assert!(new_account_balance == 0);
+
+        let amount = 10u64; // in ethers
         let transaction = Transaction {
             priority: Priority::Normal,
             from: geth.coinbase().parse().unwrap(),
-            to: geth.new_account().parse().unwrap(),
-            value: Value::Number(U256::from(10e18 as u64)), // 10 ethers
+            to: new_account.parse().unwrap(),
+            value: Value::Number(ethers::utils::parse_ether(amount).unwrap()),
             confirmations: 3,
         };
 
@@ -188,7 +92,11 @@ async fn test_manager_with_geth() {
 
         let result = manager.send_transaction(transaction, None).await;
         assert_ok!(result);
-        let (_manager, _receipt) = result.unwrap();
+        let (_, _) = result.unwrap();
+
+        let new_account_balance =
+            geth.check_balance_in_ethers(new_account.clone());
+        assert!(new_account_balance == amount);
     });
 
     let ok = future.catch_unwind().await;
@@ -764,5 +672,123 @@ impl Data {
                 transaction_hash,
             }
         }
+    }
+}
+
+/// How long we will wait for geth to indicate that it is ready.
+const GETH_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
+
+/// The geth command.
+const GETH: &str = "geth";
+
+/// The exposed APIs.
+const API: &str = "eth,net,web3,txpool,personal,debug";
+
+pub struct GethNode {
+    pub url: String,
+    process: std::process::Child,
+}
+
+impl GethNode {
+    pub fn start(port: u16, block_time: u16) -> GethNode {
+        let mut cmd = Command::new(GETH);
+
+        // geth uses stderr for its logs
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Open the HTTP API
+        cmd.arg("--http");
+        cmd.arg("--http.port").arg(port.to_string());
+        cmd.arg("--http.api").arg(API);
+
+        // Open the WS API
+        cmd.arg("--ws");
+        cmd.arg("--ws.port").arg(port.to_string());
+        cmd.arg("--ws.api").arg(API);
+
+        // Dev mode with custom block time
+        cmd.arg("--dev");
+        cmd.arg("--dev.period").arg(block_time.to_string());
+
+        let mut child = cmd.spawn().expect("couldnt start geth");
+
+        let stdout = child
+            .stderr
+            .expect("Unable to get stderr for geth child process");
+
+        let start = Instant::now();
+        let mut reader = BufReader::new(stdout);
+
+        loop {
+            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS)
+                <= Instant::now()
+            {
+                panic!(
+                    "Timed out waiting for geth to start. Is geth installed?"
+                )
+            }
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("Failed to read line from geth process");
+
+            // geth 1.9.23 uses "server started" while 1.9.18
+            // uses "endpoint opened"
+            if line.contains("HTTP endpoint opened")
+                || line.contains("HTTP server started")
+            {
+                break;
+            }
+        }
+
+        child.stderr = Some(reader.into_inner());
+
+        GethNode {
+            process: child,
+            url: format!("http://localhost:{}", port).to_string(),
+        }
+    }
+
+    pub fn coinbase(&self) -> String {
+        let output = Command::new(GETH)
+            .args(["attach", &self.url, "--exec", "eth.coinbase"])
+            .output()
+            .unwrap()
+            .stdout;
+        let s = std::str::from_utf8(&output).unwrap();
+        let hash: String = serde_json::from_str(s).unwrap();
+        hash
+    }
+
+    pub fn new_account(&self) -> String {
+        let output = Command::new(GETH)
+            .args(["attach", &self.url, "--exec", "personal.newAccount(\"\")"])
+            .output()
+            .unwrap()
+            .stdout;
+        let s = std::str::from_utf8(&output).unwrap();
+        let hash: String = serde_json::from_str(s).unwrap();
+        hash
+    }
+
+    pub fn check_balance_in_ethers(&self, hash: String) -> u64 {
+        let mut instruction: String = "eth.getBalance(\"".to_owned();
+        instruction.push_str(&hash);
+        instruction.push_str("\")");
+
+        let output = Command::new(GETH)
+            .args(["attach", &self.url, "--exec", &instruction])
+            .output()
+            .unwrap()
+            .stdout;
+
+        let s = std::str::from_utf8(&output).unwrap();
+        let balance: u64 = serde_json::from_str(s).unwrap();
+        ethers::utils::format_ether(balance).as_u64()
+    }
+
+    pub fn drop(mut self) {
+        let _ = self.process.kill().expect("could not kill geth");
     }
 }

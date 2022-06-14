@@ -45,9 +45,9 @@ impl Transaction {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
-    Number(U256),
-    // All,
-    // Nothing,
+    Number(U256), // in wei
+                  // All,
+                  // Nothing,
 }
 
 impl From<Value> for U256 {
