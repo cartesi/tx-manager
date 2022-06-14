@@ -112,9 +112,7 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
         return GasInfo {
             gas_price,
             mining_time: Some(Duration::from_secs((mining_time * 60.) as u64)),
-            block_time: Some(Duration::from_secs(
-                (response.block_time * 60.) as u64,
-            )),
+            block_time: Some(Duration::from_secs((response.block_time) as u64)),
         };
     }
 }

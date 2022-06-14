@@ -1,15 +1,17 @@
 mod mocks;
 
-use anyhow::anyhow;
 use ethers::core::rand;
 use ethers::middleware::signer::SignerMiddleware;
 use ethers::providers::{Http, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::{Address, TransactionReceipt, TxHash, U256, U64};
-use ethers::utils::Geth;
+use futures::FutureExt;
 use serial_test::serial;
+use std::fs::remove_file;
+use std::io::{BufRead, BufReader};
+use std::panic::AssertUnwindSafe;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tx_manager::database::FileSystemDatabase;
 use tx_manager::gas_oracle::{ETHGasStationOracle, GasInfo};
@@ -42,69 +44,157 @@ macro_rules! assert_err(
     };
 );
 
+/// How long we will wait for geth to indicate that it is ready.
+const GETH_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
+
+/// The geth command.
+const GETH: &str = "geth";
+
+/// The exposed APIs.
+const API: &str = "eth,net,web3,txpool,personal,debug";
+
+pub struct GethNode {
+    pub url: String,
+    process: std::process::Child,
+}
+
+impl GethNode {
+    pub fn start(port: u16, block_time: u16) -> GethNode {
+        let mut cmd = Command::new(GETH);
+
+        // geth uses stderr for its logs
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Open the HTTP API
+        cmd.arg("--http");
+        cmd.arg("--http.port").arg(port.to_string());
+        cmd.arg("--http.api").arg(API);
+
+        // Open the WS API
+        cmd.arg("--ws");
+        cmd.arg("--ws.port").arg(port.to_string());
+        cmd.arg("--ws.api").arg(API);
+
+        // Dev mode with custom block time
+        cmd.arg("--dev");
+        cmd.arg("--dev.period").arg(block_time.to_string());
+
+        let mut child = cmd.spawn().expect("couldnt start geth");
+
+        let stdout = child
+            .stderr
+            .expect("Unable to get stderr for geth child process");
+
+        let start = Instant::now();
+        let mut reader = BufReader::new(stdout);
+
+        loop {
+            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS)
+                <= Instant::now()
+            {
+                panic!(
+                    "Timed out waiting for geth to start. Is geth installed?"
+                )
+            }
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("Failed to read line from geth process");
+
+            // geth 1.9.23 uses "server started" while 1.9.18
+            // uses "endpoint opened"
+            if line.contains("HTTP endpoint opened")
+                || line.contains("HTTP server started")
+            {
+                break;
+            }
+        }
+
+        child.stderr = Some(reader.into_inner());
+
+        GethNode {
+            process: child,
+            url: format!("http://localhost:{}", port).to_string(),
+        }
+    }
+
+    pub fn coinbase(&self) -> String {
+        let output = Command::new(GETH)
+            .args(["attach", &self.url, "--exec", "eth.coinbase"])
+            .output()
+            .unwrap()
+            .stdout;
+        let s = std::str::from_utf8(&output).unwrap();
+        let hash: String = serde_json::from_str(s).unwrap();
+        hash
+    }
+
+    pub fn new_account(&self) -> String {
+        let output = Command::new(GETH)
+            .args(["attach", &self.url, "--exec", "personal.newAccount(\"\")"])
+            .output()
+            .unwrap()
+            .stdout;
+        let s = std::str::from_utf8(&output).unwrap();
+        let hash: String = serde_json::from_str(s).unwrap();
+        hash
+    }
+
+    pub fn drop(mut self) {
+        let _ = self.process.kill().expect("could not kill geth");
+    }
+}
+
 #[tokio::test]
 async fn test_manager_with_geth() {
-    /*
-    let port = 8545u16;
-    let block_time = 5u64;
-    let geth = Geth::new().port(port).block_time(block_time).spawn();
+    let geth = GethNode::start(8545, 14);
+    let database_path = "./test_database.json";
+    let _ = remove_file(database_path);
 
-    let url = format!("http://localhost:{}", port).to_string();
-    let cmd = Command::new("geth").args(["attach", &url, "--exec"]);
+    let future = AssertUnwindSafe(async {
+        Data::setup();
 
-    cmd.arg("eth.accounts");
+        let transaction = Transaction {
+            priority: Priority::Normal,
+            from: geth.coinbase().parse().unwrap(),
+            to: geth.new_account().parse().unwrap(),
+            value: Value::Number(U256::from(10e18 as u64)), // 10 ethers
+            confirmations: 3,
+        };
 
-    drop(geth);
-    // let str = "geth attach http://localhost:8545 --exec eth.accounts";
-    */
+        let chain_id = 1337u64;
+        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
+        let unused = &mut rand::thread_rng();
+        let signer = LocalWallet::new(unused).with_chain_id(chain_id);
+        let provider = SignerMiddleware::new(provider, signer);
 
-    /*
-    Data::setup();
-    let transaction = Transaction {
-        priority: Priority::Normal,
-        from: "0xd631c4a28b6ad5bb5d6b0de6f17a0f13b5fc64f0"
-            .parse()
-            .unwrap(),
-        to: "0x5f68ec5f2bc8ba86a31c4b015b517e165be9b47b"
-            .parse()
-            .unwrap(),
-        value: Value::Number(U256::from(10e18 as u64)), // 10 ethers
-        confirmations: 3,
-    };
+        let gas_oracle = ETHGasStationOracle::new("api key");
+        let database = FileSystemDatabase::new(database_path);
+        let result = Manager::new(
+            provider,
+            gas_oracle,
+            database,
+            chain_id.into(),
+            Configuration {
+                transaction_mining_interval: Duration::from_secs(1),
+                block_time: Duration::from_secs(1),
+                time: DefaultTime,
+            },
+        )
+        .await;
+        assert_ok!(result);
+        let (manager, _) = result.unwrap();
 
-    let port = 8545u16;
-    // let block_time = 1u64;
-    let url = format!("http://localhost:{}", port).to_string();
+        let result = manager.send_transaction(transaction, None).await;
+        assert_ok!(result);
+        let (_manager, _receipt) = result.unwrap();
+    });
 
-    let chain_id = 1337u64;
-
-    let provider = Provider::<Http>::try_from(url).unwrap();
-    let unused = &mut rand::thread_rng();
-    let signer = LocalWallet::new(unused).with_chain_id(chain_id);
-    let provider = SignerMiddleware::new(provider, signer);
-
-    let gas_oracle = ETHGasStationOracle::new("api key");
-    let database = FileSystemDatabase::new("./test_database.json");
-    let result = Manager::new_(
-        provider,
-        gas_oracle,
-        database,
-        Box::new(DefaultTime),
-        chain_id.into(),
-        Duration::from_secs(2),
-        Duration::from_secs(2),
-    )
-    .await;
-
-    assert_ok!(result);
-    let (manager, _) = result.unwrap();
-
-    // let geth = Geth::new().port(port).block_time(block_time).spawn();
-    let result = manager.send_transaction(transaction, None).await;
-    // drop(geth);
-    assert_ok!(result);
-    let (_manager, _receipt) = result.unwrap();
-    */
+    let ok = future.catch_unwind().await;
+    geth.drop();
+    let _ = remove_file(database_path);
+    assert_ok!(ok);
 }
 
 #[tokio::test]
