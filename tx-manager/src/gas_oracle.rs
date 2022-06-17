@@ -4,7 +4,7 @@ use ethers::types::U256;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use std::fmt::Debug;
-use tracing::info;
+use tracing::trace;
 
 use crate::transaction::Priority;
 
@@ -73,7 +73,7 @@ impl GasOracle for ETHGasStationOracle {
         let response = serde_json::from_slice(bytes)
             .map_err(GasOracleError::ParseResponse)?;
         let gas_info = (response, priority).into();
-        info!("gas info: {:?}", gas_info);
+        trace!("gas info: {:?}", gas_info);
         return Ok(gas_info);
     }
 }

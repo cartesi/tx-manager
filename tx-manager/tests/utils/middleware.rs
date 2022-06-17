@@ -10,7 +10,6 @@ use ethers::types::{
 };
 use ethers::utils::keccak256;
 use std::collections::HashMap;
-// use tracing::info;
 
 // Middleware mock.
 
@@ -115,6 +114,7 @@ impl Middleware for MockMiddleware {
         unsafe {
             GLOBAL.get_block_n += 1;
         }
+
         let mut block = Block::<TxHash>::default();
         block.base_fee_per_gas = Some(u256(250));
         match self.get_block {
@@ -166,7 +166,6 @@ impl Middleware for MockMiddleware {
         transaction_hash: T,
     ) -> Result<Option<TransactionReceipt>, Self::Error> {
         let i = unsafe { GLOBAL.get_transaction_receipt_n as usize };
-        // info!("get_transaction_receipt {:?}", i);
         unsafe {
             GLOBAL.get_transaction_receipt_n += 1;
         }
@@ -185,6 +184,7 @@ impl Middleware for MockMiddleware {
                     .get(&receipt.transaction_hash)
                     .unwrap_or(&0)
             };
+            println!("block_number: {:?}", block_number);
             receipt.block_number = Some(u64(block_number.try_into().unwrap()));
             Ok(Some(receipt))
         }
@@ -210,7 +210,7 @@ impl Middleware for MockMiddleware {
         let pending_transaction =
             PendingTransaction::new(hash, self.provider());
         unsafe {
-            let current_block = GLOBAL.get_block_number_n - 1;
+            let current_block = GLOBAL.get_block_number_n;
             GLOBAL.insert_transaction(*pending_transaction, current_block);
         }
         Ok(pending_transaction)
