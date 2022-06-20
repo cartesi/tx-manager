@@ -41,6 +41,7 @@ macro_rules! assert_err(
 
 /// This test takes around 90s to finish.
 #[tokio::test]
+#[serial]
 async fn test_manager_with_geth() {
     setup_tracing();
 
@@ -580,7 +581,7 @@ fn setup_tracing() {
         .with_source_location(false)
         .compact();
     let _ = tracing_subscriber::fmt()
-        // .with_max_level(tracing::Level::TRACE)
+        .with_max_level(tracing::Level::TRACE)
         .event_format(format)
         .try_init();
 }
