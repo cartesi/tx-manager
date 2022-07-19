@@ -42,11 +42,11 @@ pub enum FileSystemDatabaseError {
 
 #[derive(Debug)]
 pub struct FileSystemDatabase {
-    path: &'static str,
+    path: String,
 }
 
 impl FileSystemDatabase {
-    pub fn new(path: &'static str) -> FileSystemDatabase {
+    pub fn new(path: String) -> FileSystemDatabase {
         return FileSystemDatabase { path };
     }
 }
@@ -56,7 +56,7 @@ impl Database for FileSystemDatabase {
     type Error = FileSystemDatabaseError;
 
     async fn set_state(&mut self, state: &State) -> Result<(), Self::Error> {
-        let mut file = fs::File::create(self.path)
+        let mut file = fs::File::create(self.path.clone())
             .await
             .map_err(Self::Error::CreateFile)?;
         let s =
@@ -69,7 +69,7 @@ impl Database for FileSystemDatabase {
     }
 
     async fn get_state(&self) -> Result<Option<State>, Self::Error> {
-        let file = fs::File::open(self.path).await;
+        let file = fs::File::open(self.path.clone()).await;
         return match file {
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
             Err(err) => Err(Self::Error::ReadFile(err)),
@@ -86,7 +86,7 @@ impl Database for FileSystemDatabase {
     }
 
     async fn clear_state(&mut self) -> Result<(), Self::Error> {
-        Ok(fs::remove_file(self.path)
+        Ok(fs::remove_file(self.path.clone())
             .await
             .map_err(Self::Error::DeleteFile)?)
     }
@@ -98,9 +98,10 @@ impl Database for FileSystemDatabase {
 mod test {
     use ethers::types::{H160, H256};
     use serde_json::error::Category;
+    use serial_test::serial;
     use std::fs::{remove_file, File};
     use std::io::Write;
-    use std::path::Path;
+    use std::path::PathBuf;
 
     use crate::database::{
         Database, FileSystemDatabase, FileSystemDatabaseError,
@@ -108,13 +109,78 @@ mod test {
     use crate::manager::State;
     use crate::transaction::{Priority, Transaction, Value};
 
+    /// Auxiliary.
+    fn setup(str: String) -> (PathBuf, FileSystemDatabase) {
+        let path = PathBuf::from(&str);
+        let database = FileSystemDatabase::new(str.clone());
+        let _ = remove_file(path.as_path());
+        (path, database)
+    }
+
     #[tokio::test]
-    async fn test_file_system_database_set_state() {
-        // setup
-        let path_str = "./set_database.json";
-        let path = Path::new(path_str);
-        let mut database = FileSystemDatabase::new(path_str);
-        let _ = remove_file(path);
+    #[serial]
+    async fn test_file_system_database_set_state_ok_empty_state() {
+        let state = State {
+            nonce: Some(1u64.into()),
+            transaction: Transaction {
+                priority: Priority::Normal,
+                from: H160::from_low_u64_ne(1u64),
+                to: H160::from_low_u64_ne(2u64),
+                value: Value::Number(5000u64.into()),
+                confirmations: 0,
+                call_data: None,
+            },
+            pending_transactions: vec![],
+        };
+
+        let (path, mut database) = setup("./set_database.json".to_string());
+        let path = path.as_path();
+
+        assert!(!path.is_file());
+        let result = database.set_state(&state).await;
+        assert!(result.is_ok());
+        assert!(path.is_file());
+        remove_file(path).unwrap();
+        assert!(!path.is_file());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_set_state_ok_existing_state() {
+        let state = State {
+            nonce: Some(2u64.into()),
+            transaction: Transaction {
+                priority: Priority::High,
+                from: H160::from_low_u64_ne(5u64),
+                to: H160::from_low_u64_ne(6u64),
+                value: Value::Number(3000u64.into()),
+                confirmations: 5,
+                call_data: None,
+            },
+            pending_transactions: vec![
+                H256::from_low_u64_ne(1400u64),
+                H256::from_low_u64_ne(1500u64),
+            ],
+        };
+
+        let (path, mut database) = setup("./set_database.json".to_string());
+        let path = path.as_path();
+
+        assert!(!path.is_file());
+        let result = database.set_state(&state).await;
+        assert!(result.is_ok());
+        assert!(path.is_file());
+        let result = database.set_state(&state).await;
+        assert!(result.is_ok());
+        assert!(path.is_file());
+        remove_file(path).unwrap();
+        assert!(!path.is_file());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_set_state_error() {
+        // error => could not create the file (invalid path)
 
         let state = State {
             nonce: Some(1u64.into()),
@@ -124,153 +190,128 @@ mod test {
                 to: H160::from_low_u64_ne(2u64),
                 value: Value::Number(5000u64.into()),
                 confirmations: 0,
+                call_data: None,
             },
             pending_transactions: vec![],
         };
 
-        // ok => set state over empty state
-        {
-            assert!(!path.is_file());
-            let result = database.set_state(&state).await;
-            assert!(result.is_ok());
-            assert!(path.is_file());
-        }
+        let path_str = "/bin/set_database.json".to_string();
+        let path = PathBuf::from(&path_str);
+        let path = path.as_path();
+        let mut database = FileSystemDatabase::new(path_str.clone());
 
-        // ok => set state over preexisting state
-        {
-            let state = State {
-                nonce: Some(2u64.into()),
-                transaction: Transaction {
-                    priority: Priority::High,
-                    from: H160::from_low_u64_ne(5u64),
-                    to: H160::from_low_u64_ne(6u64),
-                    value: Value::Number(3000u64.into()),
-                    confirmations: 5,
-                },
-                pending_transactions: vec![
-                    H256::from_low_u64_ne(1400u64),
-                    H256::from_low_u64_ne(1500u64),
-                ],
-            };
-            assert!(path.is_file());
-            let result = database.set_state(&state).await;
-            assert!(result.is_ok());
-            assert!(path.is_file());
-        }
+        assert!(!path.is_file());
+        let result = database.set_state(&state).await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            FileSystemDatabaseError::CreateFile(err) => {
+                assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied)
+            }
+            _ => assert!(false, "expected CreateFile error"),
+        };
+        assert!(!path.is_file());
+    }
 
-        // error => could not create the file (invalid path)
-        {
-            let path_str = "/bin/set_database.json";
-            let path = Path::new(path_str);
-            let mut database = FileSystemDatabase::new(path_str);
+    // Currently not testing the ToJSON and WriteToFile errors.
 
-            assert!(!path.is_file());
-            let result = database.set_state(&state).await;
-            assert!(result.is_err());
-            match result.err().unwrap() {
-                FileSystemDatabaseError::CreateFile(err) => {
-                    assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied)
-                }
-                _ => assert!(false, "expected CreateFile error"),
-            };
-            assert!(!path.is_file());
-        }
-
-        // Currently not testing the ToJSON and WriteToFile errors.
-
-        // teardown
-        assert!(database.clear_state().await.is_ok());
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_get_state_ok_empty_state() {
+        let (path, database) = setup("./get_database.json".to_string());
+        assert!(!path.is_file());
+        let result = database.get_state().await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+        assert!(!path.is_file());
     }
 
     #[tokio::test]
-    async fn test_file_system_database_get_state() {
-        // setup
-        let path_str = "./get_database.json";
-        let path = Path::new(path_str);
-        let mut database = FileSystemDatabase::new(path_str);
-        let _ = remove_file(path);
+    #[serial]
+    async fn test_file_system_database_get_state_ok_existing_state() {
+        let original_state = State {
+            nonce: Some(2u64.into()),
+            transaction: Transaction {
+                priority: Priority::High,
+                from: H160::from_low_u64_ne(5u64),
+                to: H160::from_low_u64_ne(6u64),
+                value: Value::Number(3000u64.into()),
+                confirmations: 5,
+                call_data: None,
+            },
+            pending_transactions: vec![
+                H256::from_low_u64_ne(1400u64),
+                H256::from_low_u64_ne(1500u64),
+            ],
+        };
 
-        // ok => get empty state
-        {
-            assert!(!path.is_file());
-            let result = database.get_state().await;
-            assert!(result.is_ok());
-            assert!(result.unwrap().is_none());
-            assert!(!path.is_file());
-        }
+        let (path, mut database) = setup("./get_database.json".to_string());
+        let path = path.as_path();
 
-        // ok => get existing state
-        {
-            let original_state = State {
-                nonce: Some(2u64.into()),
-                transaction: Transaction {
-                    priority: Priority::High,
-                    from: H160::from_low_u64_ne(5u64),
-                    to: H160::from_low_u64_ne(6u64),
-                    value: Value::Number(3000u64.into()),
-                    confirmations: 5,
-                },
-                pending_transactions: vec![
-                    H256::from_low_u64_ne(1400u64),
-                    H256::from_low_u64_ne(1500u64),
-                ],
-            };
-            let result = database.set_state(&original_state).await;
-            assert!(result.is_ok());
-            let result = database.get_state().await;
-            assert!(result.is_ok());
-            let some_state = result.unwrap();
-            assert!(some_state.is_some());
-            let retrieved_state = some_state.unwrap();
-            assert_eq!(original_state, retrieved_state);
-        }
-
-        // Currently not testing the ReadFile error.
-
-        // error => could not parse the read file to JSON
-        {
-            let path_str = "./parse_json_test.json";
-            let path = Path::new(path_str);
-            let _ = remove_file(path);
-            assert!(!path.is_file());
-            let mut file = File::create(path).unwrap();
-            file.write_all("this is not a JSON!".as_bytes()).unwrap();
-
-            let database = FileSystemDatabase::new(path_str);
-            let result = database.get_state().await;
-            assert!(result.is_err());
-            match result.err().unwrap() {
-                FileSystemDatabaseError::ParseJSON(err) => {
-                    assert_eq!(err.classify(), Category::Syntax)
-                }
-                _ => assert!(false, "expected ParseJSON error"),
-            };
-            assert!(path.is_file());
-            remove_file(path).unwrap();
-            assert!(!path.is_file());
-        }
-
-        // teardown
-        assert!(database.clear_state().await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_file_system_database_clear_state() {
-        // setup
-        let path_str = "./clear_database.json";
-        let path = Path::new(path_str);
-        let _ = remove_file(path);
-        assert!(File::create(path_str).is_ok());
-
-        // ok => clearing the state
+        assert!(!path.is_file());
+        let result = database.set_state(&original_state).await;
+        assert!(result.is_ok());
         assert!(path.is_file());
-        let result = FileSystemDatabase::new(path_str).clear_state().await;
+        let result = database.get_state().await;
+        assert!(result.is_ok());
+        let some_state = result.unwrap();
+        assert!(some_state.is_some());
+        let retrieved_state = some_state.unwrap();
+        assert_eq!(original_state, retrieved_state);
+
+        assert!(path.is_file());
+        remove_file(path).unwrap();
+        assert!(!path.is_file());
+    }
+
+    // Currently not testing the ReadFile error.
+
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_get_state_error() {
+        // error => could not parse the read file to JSON
+
+        let path_str = "./parse_json_test.json".to_string();
+        let path = PathBuf::from(path_str.clone());
+        let path = path.as_path();
+        let _ = remove_file(path);
+        assert!(!path.is_file());
+        let mut file = File::create(path).unwrap();
+        file.write_all("this is not a JSON!".as_bytes()).unwrap();
+
+        let database = FileSystemDatabase::new(path_str.clone());
+        let result = database.get_state().await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            FileSystemDatabaseError::ParseJSON(err) => {
+                assert_eq!(err.classify(), Category::Syntax)
+            }
+            _ => assert!(false, "expected ParseJSON error"),
+        };
+
+        assert!(path.is_file());
+        remove_file(path).unwrap();
+        assert!(!path.is_file());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_clear_state_ok() {
+        let path_str = "./clear_database.json".to_string();
+        let (path, mut database) = setup(path_str.clone());
+        assert!(File::create(path_str.clone()).is_ok());
+
+        let result = database.clear_state().await;
         assert!(result.is_ok());
         assert!(!path.is_file());
+    }
 
-        // error => cannot clear an empty state
-        assert!(!path.is_file());
-        let result = FileSystemDatabase::new(path_str).clear_state().await;
+    #[tokio::test]
+    #[serial]
+    async fn test_file_system_database_clear_state_error_empty_state() {
+        let path_str = "./clear_database.json".to_string();
+        let (path, mut database) = setup(path_str.clone());
+
+        let result = database.clear_state().await;
         assert!(result.is_err());
         match result.err().unwrap() {
             FileSystemDatabaseError::DeleteFile(err) => {

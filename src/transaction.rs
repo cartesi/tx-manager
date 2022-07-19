@@ -1,3 +1,4 @@
+use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{Address, Eip1559TransactionRequest, NameOrAddress, U256};
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ pub struct Transaction {
     pub to: Address,
     pub value: Value,
     pub confirmations: u32,
-    // pub call_data: Option<Bytes>, // smart contract payload
+    pub call_data: Option<Bytes>, // smart contract payload
 }
 
 impl Transaction {
@@ -34,7 +35,7 @@ impl Transaction {
             to: Some(NameOrAddress::Address(self.to)),
             gas: None, // must be set after
             value: Some(self.value.into()),
-            data: None,
+            data: self.call_data.clone(),
             nonce: Some(nonce),
             access_list: AccessList::default(),
             max_priority_fee_per_gas: Some(max_priority_fee_per_gas),

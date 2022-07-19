@@ -74,10 +74,10 @@ async fn test_manager_with_geth() {
         let signer: LocalWallet = private_key.parse().unwrap();
         let signer = signer.with_chain_id(chain_id);
         let provider = SignerMiddleware::new(provider, signer);
-        let gas_oracle = ETHGasStationOracle::new("api key");
+        let gas_oracle = ETHGasStationOracle::new("api key".to_string());
         let database_path = "./test_database.json";
         let _ = remove_file(database_path);
-        let database = FileSystemDatabase::new(database_path);
+        let database = FileSystemDatabase::new(database_path.to_string());
         let result = Manager::new(
             provider,
             gas_oracle,
@@ -104,6 +104,7 @@ async fn test_manager_with_geth() {
             to: account2.parse().unwrap(),
             value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
             confirmations: 3,
+            call_data: None,
         };
 
         let result = manager.send_transaction(transaction, None).await;
@@ -125,6 +126,7 @@ async fn test_manager_with_geth() {
             to: account2.parse().unwrap(),
             value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
             confirmations: 1,
+            call_data: None,
         };
 
         let result = manager.send_transaction(transaction, None).await;
@@ -149,6 +151,7 @@ async fn test_manager_new() {
         to: HASH2.parse().unwrap(),
         value: Value::Number(U256::from(5u64)),
         confirmations: 1,
+        call_data: None,
     };
 
     // Instantiating a new transaction manager that has no pending transactions.
@@ -582,7 +585,7 @@ fn setup_tracing() {
         .with_source_location(false)
         .compact();
     let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
+        // .with_max_level(tracing::Level::TRACE) // tracing
         .event_format(format)
         .try_init();
 }
@@ -653,6 +656,7 @@ async fn run_send_transaction(
         to: HASH2.parse().unwrap(),
         value: Value::Number(U256::from(5u64)),
         confirmations,
+        call_data: None,
     };
     manager
         .send_transaction(transaction, Some(Duration::ZERO))

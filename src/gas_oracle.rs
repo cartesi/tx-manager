@@ -41,11 +41,11 @@ pub enum GasOracleError {
 
 #[derive(Debug)]
 pub struct ETHGasStationOracle {
-    api_key: &'static str,
+    api_key: String,
 }
 
 impl ETHGasStationOracle {
-    pub fn new(api_key: &'static str) -> ETHGasStationOracle {
+    pub fn new(api_key: String) -> ETHGasStationOracle {
         return ETHGasStationOracle { api_key };
     }
 }
@@ -123,49 +123,48 @@ mod tests {
     use crate::transaction::Priority;
 
     #[tokio::test]
-    async fn test_eth_gas_station_oracle() {
+    async fn test_eth_gas_station_oracle_ok() {
         // setup
-        tracing_subscriber::fmt::init();
+        // tracing_subscriber::fmt::init();
+        let gas_oracle = ETHGasStationOracle::new("works".to_string());
 
-        // an API key is not necessary
-        let gas_oracle = ETHGasStationOracle::new("works");
-        let invalid_gas_oracle1 = ETHGasStationOracle::new("invalid");
-        let invalid_gas_oracle2 = ETHGasStationOracle::new("");
+        // ok => priority low
+        let result = gas_oracle.gas_info(Priority::Low).await;
+        assert!(result.is_ok(), "{:?}", result);
+        let gas_info_low = result.unwrap();
 
-        {
-            // ok => priority low
-            let result = gas_oracle.gas_info(Priority::Low).await;
-            assert!(result.is_ok(), "{:?}", result);
-            let gas_info_low = result.unwrap();
+        // ok => priority normal
+        let result = gas_oracle.gas_info(Priority::Normal).await;
+        assert!(result.is_ok());
+        let gas_info_normal = result.unwrap();
 
-            // ok => priority normal
-            let result = gas_oracle.gas_info(Priority::Normal).await;
-            assert!(result.is_ok());
-            let gas_info_normal = result.unwrap();
+        // ok => priority high
+        let result = gas_oracle.gas_info(Priority::High).await;
+        assert!(result.is_ok());
+        let gas_info_high = result.unwrap();
 
-            // ok => priority high
-            let result = gas_oracle.gas_info(Priority::High).await;
-            assert!(result.is_ok());
-            let gas_info_high = result.unwrap();
+        // ok => priority ASAP
+        let result = gas_oracle.gas_info(Priority::ASAP).await;
+        assert!(result.is_ok());
+        let gas_info_asap = result.unwrap();
 
-            // ok => priority ASAP
-            let result = gas_oracle.gas_info(Priority::ASAP).await;
-            assert!(result.is_ok());
-            let gas_info_asap = result.unwrap();
+        assert!(gas_info_low.gas_price <= gas_info_normal.gas_price);
+        assert!(gas_info_normal.gas_price <= gas_info_high.gas_price);
+        assert!(gas_info_high.gas_price <= gas_info_asap.gas_price);
+    }
 
-            assert!(gas_info_low.gas_price <= gas_info_normal.gas_price);
-            assert!(gas_info_normal.gas_price <= gas_info_high.gas_price);
-            assert!(gas_info_high.gas_price <= gas_info_asap.gas_price);
-        }
+    #[tokio::test]
+    async fn test_eth_gas_station_oracle_invalid_api_key() {
+        // setup
+        let invalid1 = ETHGasStationOracle::new("invalid".to_string());
+        let invalid2 = ETHGasStationOracle::new("".to_string());
 
-        {
-            // ok => invalid API key works (for some reason)
-            let result = invalid_gas_oracle1.gas_info(Priority::Normal).await;
-            assert!(result.is_ok());
+        // ok => invalid API key works (for some reason)
+        let result = invalid1.gas_info(Priority::Normal).await;
+        assert!(result.is_ok());
 
-            // ok => empty API key works (for some reason)
-            let result = invalid_gas_oracle2.gas_info(Priority::Normal).await;
-            assert!(result.is_ok());
-        }
+        // ok => empty API key works (for some reason)
+        let result = invalid2.gas_info(Priority::Normal).await;
+        assert!(result.is_ok());
     }
 }
