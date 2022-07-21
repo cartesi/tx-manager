@@ -2,7 +2,8 @@
 name = "tx-manager"
 license = "Apache-2.0"
 version = "0.2.0"
-authors = ["Renan Santos", "Gabriel Coutinho"]
+authors = ["Renan Santos <renan.santos@cartesi.io>", 
+           "Gabriel Coutinho de Paula <gabriel.coutinho@cartesi.io>"]
 homepage = "https://cartesi.io"
 edition = "2021"
 
