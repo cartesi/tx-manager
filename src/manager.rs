@@ -215,7 +215,7 @@ where
             // Calculating the transaction hash.
             let typed_transaction = &TypedTransaction::Eip1559(request.clone());
             let transaction_hash =
-                self.transaction_hash(&typed_transaction).await?;
+                self.transaction_hash(typed_transaction).await?;
 
             // Storing information about the pending
             // transaction in the database.

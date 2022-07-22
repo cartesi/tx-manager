@@ -33,9 +33,7 @@ impl tx_manager::gas_oracle::GasOracle for GasOracle {
 
     async fn gas_info(&self, _: Priority) -> Result<GasInfo, Self::Error> {
         unsafe { GLOBAL.gas_info_n += 1 };
-        self.gas_info_output
-            .ok_or(GasOracleError::GasInfo)
-            .map(|x| x.clone())
+        self.gas_info_output.ok_or(GasOracleError::GasInfo)
     }
 }
 

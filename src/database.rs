@@ -50,7 +50,7 @@ pub struct FileSystemDatabase {
 
 impl FileSystemDatabase {
     pub fn new(path: String) -> FileSystemDatabase {
-        return FileSystemDatabase { path };
+        FileSystemDatabase { path }
     }
 }
 
@@ -128,7 +128,7 @@ mod test {
     /// Auxiliary.
     fn setup(str: String) -> (PathBuf, FileSystemDatabase) {
         let path = PathBuf::from(&str);
-        let database = FileSystemDatabase::new(str.clone());
+        let database = FileSystemDatabase::new(str);
         let _ = remove_file(path.as_path());
         (path, database)
     }
@@ -227,12 +227,12 @@ mod test {
         assert!(!path.is_file());
         let result = database.set_state(&state).await;
         assert!(result.is_err());
-        match result.err().unwrap() {
-            FileSystemDatabaseError::CreateFile(err) => {
-                assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied)
-            }
-            _ => assert!(false, "expected CreateFile error"),
-        };
+        let err = result.as_ref().err().unwrap();
+        assert!(
+            matches!(err, FileSystemDatabaseError::CreateFile(err) if err.kind() == std::io::ErrorKind::PermissionDenied),
+            "expected CreateFile::PermissionDenied error, got {}",
+            err
+        );
         assert!(!path.is_file());
     }
 
@@ -309,12 +309,12 @@ mod test {
         let database = FileSystemDatabase::new(path_str.clone());
         let result = database.get_state().await;
         assert!(result.is_err());
-        match result.err().unwrap() {
-            FileSystemDatabaseError::ParseJSON(err) => {
-                assert_eq!(err.classify(), Category::Syntax)
-            }
-            _ => assert!(false, "expected ParseJSON error"),
-        };
+        let err = result.as_ref().err().unwrap();
+        assert!(
+            matches!(err, FileSystemDatabaseError::ParseJSON(err) if err.classify() == Category::Syntax),
+            "expected ParseJSON::Syntax error, got {}",
+            err
+        );
 
         assert!(path.is_file());
         remove_file(path).unwrap();
@@ -341,12 +341,13 @@ mod test {
 
         let result = database.clear_state().await;
         assert!(result.is_err());
-        match result.err().unwrap() {
-            FileSystemDatabaseError::DeleteFile(err) => {
-                assert_eq!(err.kind(), std::io::ErrorKind::NotFound)
-            }
-            _ => assert!(false, "expected DeleteFile error"),
-        };
+        let err = result.as_ref().err().unwrap();
+        assert!(
+            matches!(err, FileSystemDatabaseError::DeleteFile(err) if err.kind() == std::io::ErrorKind::NotFound),
+            "expected DeleteFile::NotFound error. got {}",
+            err
+        );
+
         assert!(!path.is_file());
     }
 }

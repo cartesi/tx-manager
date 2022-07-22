@@ -4,7 +4,7 @@ mod geth;
 mod middleware;
 mod time;
 
-pub use database::{Database, DatabaseError};
+pub use database::{Database, DatabaseStateError};
 pub use gas_oracle::{GasOracle, GasOracleError};
 pub use geth::GethNode;
 pub use middleware::{MockMiddleware, MockMiddlewareError};

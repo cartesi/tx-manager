@@ -46,7 +46,7 @@ pub struct ETHGasStationOracle {
 
 impl ETHGasStationOracle {
     pub fn new(api_key: String) -> ETHGasStationOracle {
-        return ETHGasStationOracle { api_key };
+        ETHGasStationOracle { api_key }
     }
 }
 
@@ -109,11 +109,11 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
         let mut gas_price = U256::from(gas_price);
         gas_price = gas_price.checked_mul(U256::exp10(10)).unwrap();
 
-        return GasInfo {
+        GasInfo {
             gas_price,
             mining_time: Some(Duration::from_secs((mining_time * 60.) as u64)),
             block_time: Some(Duration::from_secs((response.block_time) as u64)),
-        };
+        }
     }
 }
 

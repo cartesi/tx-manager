@@ -74,7 +74,7 @@ pub struct StaticTxData {
     pub priority: Priority,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubmittedTxs {
     /// Hashes of the pending transactions sent to the transaction pool.
     pub txs_hashes: Vec<H256>,

@@ -115,12 +115,14 @@ impl Middleware for MockMiddleware {
             GLOBAL.get_block_n += 1;
         }
 
-        let mut block = Block::<TxHash>::default();
-        block.base_fee_per_gas = Some(u256(250));
-        match self.get_block {
-            None => Err(MockMiddlewareError::GetBlock),
-            Some(_) => Ok(Some(block)),
-        }
+        let block = Block::<TxHash> {
+            base_fee_per_gas: Some(u256(250)),
+            ..Default::default()
+        };
+
+        self.get_block
+            .map(|_| Some(block))
+            .ok_or(MockMiddlewareError::GetBlock)
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
@@ -176,16 +178,23 @@ impl Middleware for MockMiddleware {
         if !self.get_transaction_receipt[i] {
             Ok(None)
         } else {
-            let mut receipt = TransactionReceipt::default();
-            receipt.transaction_hash = transaction_hash.into();
+            let transaction_hash = transaction_hash.into();
+
             let block_number = unsafe {
                 *GLOBAL
                     .sent_transactions()
-                    .get(&receipt.transaction_hash)
+                    .get(&transaction_hash)
                     .unwrap_or(&0)
             };
+
             println!("block_number: {:?}", block_number);
-            receipt.block_number = Some(u64(block_number.try_into().unwrap()));
+
+            let receipt = TransactionReceipt {
+                block_number: Some(u64(block_number.try_into().unwrap())),
+                transaction_hash,
+                ..Default::default()
+            };
+
             Ok(Some(receipt))
         }
     }

@@ -17,7 +17,7 @@ use tx_manager::transaction::{
 
 mod utils;
 use utils::{
-    Database, DatabaseError, GasOracle, GasOracleError, GethNode,
+    Database, DatabaseStateError, GasOracle, GasOracleError, GethNode,
     MockMiddleware, MockMiddlewareError, Time,
 };
 
@@ -187,7 +187,7 @@ async fn test_manager_new() {
         )
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseError::GetState);
+            tx_manager::Error::Database(DatabaseStateError::Get);
         assert_err!(result, expected_err);
     }
 
@@ -257,7 +257,7 @@ async fn test_manager_new() {
         )
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseError::ClearState);
+            tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
     }
 }
@@ -559,7 +559,7 @@ async fn test_manager_send_transaction_basic_database_errors() {
             })
             .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseError::SetState);
+            tx_manager::Error::Database(DatabaseStateError::Set);
         assert_err!(result, expected_err);
         assert_eq!(1, Database::global().set_state_n);
     }
@@ -573,7 +573,7 @@ async fn test_manager_send_transaction_basic_database_errors() {
             })
             .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseError::ClearState);
+            tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
         assert_eq!(1, Database::global().clear_state_n);
     }

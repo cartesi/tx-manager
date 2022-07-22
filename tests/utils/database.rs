@@ -25,27 +25,27 @@ impl Database {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DatabaseError {
+pub enum DatabaseStateError {
     #[error("database mock error: set state")]
-    SetState,
+    Set,
 
     #[error("database mock error: get state")]
-    GetState,
+    Get,
 
     #[error("database mock error: clear state")]
-    ClearState,
+    Clear,
 }
 
 #[async_trait]
 impl tx_manager::database::Database for Database {
-    type Error = DatabaseError;
+    type Error = DatabaseStateError;
 
     async fn set_state(
         &mut self,
         _: &transaction::PersistentState,
     ) -> Result<(), Self::Error> {
         unsafe { GLOBAL.set_state_n += 1 };
-        self.set_state_output.ok_or(DatabaseError::SetState)
+        self.set_state_output.ok_or(DatabaseStateError::Set)
     }
 
     async fn get_state(
@@ -54,13 +54,13 @@ impl tx_manager::database::Database for Database {
         unsafe { GLOBAL.get_state_n += 1 };
         self.get_state_output
             .as_ref()
-            .ok_or(DatabaseError::GetState)
+            .ok_or(DatabaseStateError::Get)
             .map(|x| x.clone())
     }
 
     async fn clear_state(&mut self) -> Result<(), Self::Error> {
         unsafe { GLOBAL.clear_state_n += 1 };
-        self.clear_state_output.ok_or(DatabaseError::ClearState)
+        self.clear_state_output.ok_or(DatabaseStateError::Clear)
     }
 }
 

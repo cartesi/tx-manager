@@ -73,7 +73,7 @@ impl GethNode {
 
         GethNode {
             process: child,
-            url: format!("http://localhost:{}", port).to_string(),
+            url: format!("http://localhost:{}", port),
         }
     }
 
@@ -96,7 +96,7 @@ impl GethNode {
         serde_json::from_str(s).unwrap()
     }
 
-    pub fn new_account_with_private_key(&self, private_key: &String) -> String {
+    pub fn new_account_with_private_key(&self, private_key: &str) -> String {
         let instruction =
             format!("personal.importRawKey(\"{}\", \"\")", private_key);
         // println!("instruction: {:?}", instruction);
@@ -105,7 +105,7 @@ impl GethNode {
         serde_json::from_str(s).unwrap()
     }
 
-    pub fn check_balance_in_ethers(&self, hash: &String) -> u64 {
+    pub fn check_balance_in_ethers(&self, hash: &str) -> u64 {
         let mut instruction: String = "web3.fromWei(".to_owned();
         instruction.push_str("eth.getBalance(\"");
         instruction.push_str(hash);
@@ -117,7 +117,7 @@ impl GethNode {
         n as u64
     }
 
-    pub fn give_funds(&self, to: &String, amount_in_ethers: u64) {
+    pub fn give_funds(&self, to: &str, amount_in_ethers: u64) {
         let mut instruction: String = "personal.sendTransaction(".to_owned();
         instruction.push_str("{from: eth.coinbase, to: \"");
         instruction.push_str(to);
@@ -142,6 +142,6 @@ impl GethNode {
 
 impl Drop for GethNode {
     fn drop(&mut self) {
-        let _ = self.process.kill().expect("could not kill geth");
+        self.process.kill().expect("could not kill geth");
     }
 }

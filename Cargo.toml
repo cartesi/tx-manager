@@ -26,3 +26,4 @@ url = "2.2"
 [dev-dependencies]
 tracing-subscriber = "0.3"
 serial_test = "0.8"
+matches = "0.1"
