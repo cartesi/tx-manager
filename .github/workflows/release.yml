@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+  push:
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CARTESI_INDEX: ${{ secrets.CARGO_REGISTRIES_CARTESI_INDEX }}
+  CARGO_REGISTRIES_CARTESI_TOKEN: ${{ secrets.CARGO_REGISTRIES_CARTESI_TOKEN }}
+
+jobs:
+  publish-tx-manager:
+    name: 🌎 Publish tx-manager crate
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📚 Clone repository
+        uses: actions/checkout@v2
+      - name: 🔍 Get tx-manager version
+        id: version
+        run: echo "::set-output name=version::$(cat Cargo.toml | grep -P '^version = ' | sed -e 's/[version = "]//g')"
+      - name: 📦 Install stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+      - name: 📦 Package tx-manager
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: --registry=cartesi -p tx-manager --dry-run
+      - name: 🌎 Publish tx-manager
+        uses: cloudsmith-io/action@master
+        with:
+          api-key: ${{ secrets.CARGO_REGISTRIES_CARTESI_TOKEN }}
+          command: "push"
+          format: "cargo"
+          owner: "cartesi"
+          repo: "main"
+          republish: "true"
+          file: 'target/package/tx-manager-${{ steps.version.outputs.version }}.crate'
+      - name: 📚 Clone provider's registry index repository
+        run: git clone ${{ secrets.CARGO_REGISTRIES_CARTESI_INDEX }} cartesi-index
+      - name: 🌎 Push changes to cartesi registry index repository
+        uses: ad-m/github-push-action@master
+        with:
+          force: true
+          repository: cartesi/crates-index
+          directory: cartesi-index
+          github_token: ${{ secrets.CI_TOKEN }}

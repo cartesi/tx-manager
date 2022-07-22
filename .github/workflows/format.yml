@@ -1,0 +1,25 @@
+name: Format
+
+on: [ push ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustfmt:
+    name: 🔍 Analyse using rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📚 Clone repository
+        uses: actions/checkout@v2
+      - name: 📦 Install nightly Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          components: rustfmt
+      - name: 🔍 Analyse code with rustfmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check

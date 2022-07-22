@@ -1,0 +1,97 @@
+name: Build
+
+on: [ pull_request ]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CARTESI_INDEX: ${{ secrets.CARGO_REGISTRIES_CARTESI_INDEX }}
+
+jobs:
+  build:
+    name: 🔨 Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📚 Clone repository
+        uses: actions/checkout@v2
+      - name: ⚡ Cache
+        uses: actions/cache@v2
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+            target
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: 📦 Install stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+      - name: 🔨 Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-targets --all-features
+
+  clippy:
+    name: 🔍 Analyse using clippy
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📚 Clone repository
+        uses: actions/checkout@v2
+      - name: ⚡ Cache
+        uses: actions/cache@v2
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+            target
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: 📦 Install stable Rust with clippy
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy
+      - name: 🔍 Analyse code with clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-targets --all-features
+          name: 🗒️ Report from clippy
+
+  test:
+    name: 🚦 Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📦 Install Ethereum
+        run: sudo add-apt-repository -y ppa:ethereum/ethereum && sudo apt-get update && sudo apt-get install ethereum
+      - name: 📚 Clone repository
+        uses: actions/checkout@v2
+      - name: ⚡ Cache
+        uses: actions/cache@v2
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+            target
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: 📦 Install stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+      - name: 🚦 Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
