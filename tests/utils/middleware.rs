@@ -201,7 +201,7 @@ impl Middleware for MockMiddleware {
         }
         let tx: &TypedTransaction = &tx.into();
         let signature = self.sign_transaction(tx, *tx.from().unwrap()).await?;
-        let bytes = tx.rlp_signed(U64::from(1), &signature);
+        let bytes = tx.rlp_signed(&signature);
         let hash = self
             .send_transaction
             .map(|_| TxHash(keccak256(bytes)))

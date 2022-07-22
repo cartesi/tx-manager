@@ -183,6 +183,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
             // Creating the transaction request.
             let mut request: Eip1559TransactionRequest = transaction
                 .to_eip_1559_transaction_request(
+                    self.chain_id,
                     nonce,
                     max_priority_fee,
                     max_fee,
@@ -408,7 +409,7 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
             .sign_transaction(typed_transaction, from)
             .await
             .map_err(Error::Middleware)?;
-        let bytes = typed_transaction.rlp_signed(self.chain_id, &signature);
+        let bytes = typed_transaction.rlp_signed(&signature);
         let hash = keccak256(bytes);
         Ok(H256(hash))
     }

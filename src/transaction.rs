@@ -1,6 +1,8 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
-use ethers::types::{Address, Eip1559TransactionRequest, NameOrAddress, U256};
+use ethers::types::{
+    Address, Eip1559TransactionRequest, NameOrAddress, U256, U64,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -26,11 +28,13 @@ pub struct Transaction {
 impl Transaction {
     pub fn to_eip_1559_transaction_request(
         &self,
+        chain_id: U64,
         nonce: U256,
         max_priority_fee_per_gas: U256,
         max_fee_per_gas: U256,
     ) -> Eip1559TransactionRequest {
         Eip1559TransactionRequest {
+            chain_id: Some(chain_id),
             from: Some(self.from),
             to: Some(NameOrAddress::Address(self.to)),
             gas: None, // must be set after
