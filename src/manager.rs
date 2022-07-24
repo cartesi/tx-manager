@@ -324,6 +324,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace")]
     async fn gas_info(
         &self,
         priority: Priority,
@@ -349,6 +350,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "trace")]
     async fn get_mined_transaction(
         &self,
         state: &mut PersistentState,
@@ -366,6 +368,7 @@ where
         Ok(None)
     }
 
+    #[tracing::instrument(level = "trace")]
     async fn get_max_priority_fee(
         &self,
         max_fee: U256,
@@ -389,6 +392,7 @@ where
         Ok(max_fee - base_fee)
     }
 
+    #[tracing::instrument(level = "trace")]
     async fn get_nonce(
         &self,
         address: Address,
@@ -403,6 +407,7 @@ where
     }
 
     /// Calculates the transaction hash.
+    #[tracing::instrument(level = "trace")]
     async fn transaction_hash(
         &self,
         typed_transaction: &TypedTransaction,
@@ -418,6 +423,7 @@ where
         Ok(H256(hash))
     }
 
+    #[tracing::instrument(level = "trace")]
     fn wait_time(
         &self,
         confirmations: usize,
