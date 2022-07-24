@@ -4,15 +4,18 @@ use std::io::ErrorKind;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::manager::State;
+use crate::transaction::PersistentState;
 
 #[async_trait]
 pub trait Database: Debug {
     type Error: std::error::Error;
 
-    async fn set_state(&mut self, state: &State) -> Result<(), Self::Error>;
+    async fn set_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), Self::Error>;
 
-    async fn get_state(&self) -> Result<Option<State>, Self::Error>;
+    async fn get_state(&self) -> Result<Option<PersistentState>, Self::Error>;
 
     async fn clear_state(&mut self) -> Result<(), Self::Error>;
 }
@@ -55,31 +58,44 @@ impl FileSystemDatabase {
 impl Database for FileSystemDatabase {
     type Error = FileSystemDatabaseError;
 
-    async fn set_state(&mut self, state: &State) -> Result<(), Self::Error> {
+    async fn set_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), Self::Error> {
         let mut file = fs::File::create(self.path.clone())
             .await
             .map_err(Self::Error::CreateFile)?;
+
         let s =
             serde_json::to_string_pretty(state).map_err(Self::Error::ToJSON)?;
+
         file.write_all(s.as_bytes())
             .await
             .map_err(Self::Error::WriteToFile)?;
+
         file.sync_all().await.map_err(Self::Error::WriteToFile)?;
+
         return Ok(());
     }
 
-    async fn get_state(&self) -> Result<Option<State>, Self::Error> {
+    async fn get_state(&self) -> Result<Option<PersistentState>, Self::Error> {
         let file = fs::File::open(self.path.clone()).await;
+
         return match file {
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+
             Err(err) => Err(Self::Error::ReadFile(err)),
+
             Ok(mut file) => {
                 let mut s = String::new();
+
                 file.read_to_string(&mut s)
                     .await
                     .map_err(Self::Error::ReadFile)?;
+
                 let state = serde_json::de::from_str(&s)
                     .map_err(Self::Error::ParseJSON)?;
+
                 return Ok(Some(state));
             }
         };
@@ -106,7 +122,7 @@ mod test {
     use crate::database::{
         Database, FileSystemDatabase, FileSystemDatabaseError,
     };
-    use crate::manager::State;
+    use crate::transaction::{PersistentState, StaticTxData, SubmittedTxs};
     use crate::transaction::{Priority, Transaction, Value};
 
     /// Auxiliary.
@@ -120,17 +136,19 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_file_system_database_set_state_ok_empty_state() {
-        let state = State {
-            nonce: Some(1u64.into()),
-            transaction: Transaction {
+        let state = PersistentState {
+            tx_data: StaticTxData {
+                nonce: 1u64.into(),
+                transaction: Transaction {
+                    from: H160::from_low_u64_ne(1u64),
+                    to: H160::from_low_u64_ne(2u64),
+                    value: Value::Number(5000u64.into()),
+                    call_data: None,
+                },
                 priority: Priority::Normal,
-                from: H160::from_low_u64_ne(1u64),
-                to: H160::from_low_u64_ne(2u64),
-                value: Value::Number(5000u64.into()),
                 confirmations: 0,
-                call_data: None,
             },
-            pending_transactions: vec![],
+            submitted_txs: SubmittedTxs::new(),
         };
 
         let (path, mut database) = setup("./set_database.json".to_string());
@@ -147,20 +165,24 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_file_system_database_set_state_ok_existing_state() {
-        let state = State {
-            nonce: Some(2u64.into()),
-            transaction: Transaction {
+        let state = PersistentState {
+            tx_data: StaticTxData {
+                nonce: 2u64.into(),
+                transaction: Transaction {
+                    from: H160::from_low_u64_ne(5u64),
+                    to: H160::from_low_u64_ne(6u64),
+                    value: Value::Number(3000u64.into()),
+                    call_data: None,
+                },
                 priority: Priority::High,
-                from: H160::from_low_u64_ne(5u64),
-                to: H160::from_low_u64_ne(6u64),
-                value: Value::Number(3000u64.into()),
                 confirmations: 5,
-                call_data: None,
             },
-            pending_transactions: vec![
-                H256::from_low_u64_ne(1400u64),
-                H256::from_low_u64_ne(1500u64),
-            ],
+            submitted_txs: SubmittedTxs {
+                txs_hashes: vec![
+                    H256::from_low_u64_ne(1400u64),
+                    H256::from_low_u64_ne(1500u64),
+                ],
+            },
         };
 
         let (path, mut database) = setup("./set_database.json".to_string());
@@ -182,17 +204,19 @@ mod test {
     async fn test_file_system_database_set_state_error() {
         // error => could not create the file (invalid path)
 
-        let state = State {
-            nonce: Some(1u64.into()),
-            transaction: Transaction {
+        let state = PersistentState {
+            tx_data: StaticTxData {
+                nonce: 1u64.into(),
+                transaction: Transaction {
+                    from: H160::from_low_u64_ne(1u64),
+                    to: H160::from_low_u64_ne(2u64),
+                    value: Value::Number(5000u64.into()),
+                    call_data: None,
+                },
                 priority: Priority::Normal,
-                from: H160::from_low_u64_ne(1u64),
-                to: H160::from_low_u64_ne(2u64),
-                value: Value::Number(5000u64.into()),
                 confirmations: 0,
-                call_data: None,
             },
-            pending_transactions: vec![],
+            submitted_txs: SubmittedTxs::new(),
         };
 
         let path_str = "/bin/set_database.json".to_string();
@@ -228,20 +252,24 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_file_system_database_get_state_ok_existing_state() {
-        let original_state = State {
-            nonce: Some(2u64.into()),
-            transaction: Transaction {
+        let original_state = PersistentState {
+            tx_data: StaticTxData {
+                nonce: 2u64.into(),
+                transaction: Transaction {
+                    from: H160::from_low_u64_ne(5u64),
+                    to: H160::from_low_u64_ne(6u64),
+                    value: Value::Number(3000u64.into()),
+                    call_data: None,
+                },
                 priority: Priority::High,
-                from: H160::from_low_u64_ne(5u64),
-                to: H160::from_low_u64_ne(6u64),
-                value: Value::Number(3000u64.into()),
                 confirmations: 5,
-                call_data: None,
             },
-            pending_transactions: vec![
-                H256::from_low_u64_ne(1400u64),
-                H256::from_low_u64_ne(1500u64),
-            ],
+            submitted_txs: SubmittedTxs {
+                txs_hashes: vec![
+                    H256::from_low_u64_ne(1400u64),
+                    H256::from_low_u64_ne(1500u64),
+                ],
+            },
         };
 
         let (path, mut database) = setup("./get_database.json".to_string());

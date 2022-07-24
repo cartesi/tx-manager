@@ -9,9 +9,11 @@ use std::time::Duration;
 
 use tx_manager::database::FileSystemDatabase;
 use tx_manager::gas_oracle::{ETHGasStationOracle, GasInfo};
-use tx_manager::manager::{Configuration, Manager, State};
+use tx_manager::manager::{Configuration, Manager};
 use tx_manager::time::DefaultTime;
-use tx_manager::transaction::{Priority, Transaction, Value};
+use tx_manager::transaction::{
+    PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction, Value,
+};
 
 mod utils;
 use utils::{
@@ -99,15 +101,16 @@ async fn test_manager_with_geth() {
     let amount1 = 10u64; // in ethers
     let manager = {
         let transaction = Transaction {
-            priority: Priority::Normal,
             from: account1.parse().unwrap(),
             to: account2.parse().unwrap(),
             value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
-            confirmations: 3,
             call_data: None,
         };
 
-        let result = manager.send_transaction(transaction, None).await;
+        let result = manager
+            .send_transaction(transaction, 3, Priority::Normal)
+            .await;
+
         assert_ok!(result);
         let (manager, _) = result.unwrap();
         let account1_balance = geth.check_balance_in_ethers(&account1);
@@ -121,15 +124,16 @@ async fn test_manager_with_geth() {
     let amount2 = 25u64; // in ethers
     {
         let transaction = Transaction {
-            priority: Priority::ASAP,
             from: account1.parse().unwrap(),
             to: account2.parse().unwrap(),
             value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
-            confirmations: 1,
             call_data: None,
         };
 
-        let result = manager.send_transaction(transaction, None).await;
+        let result = manager
+            .send_transaction(transaction, 1, Priority::ASAP)
+            .await;
+
         assert_ok!(result);
         let (_, _) = result.unwrap();
         let account1_balance = geth.check_balance_in_ethers(&account1);
@@ -146,11 +150,9 @@ async fn test_manager_new() {
     let chain_id = U64::from(1u64);
 
     let transaction = Transaction {
-        priority: Priority::Normal,
         from: HASH1.parse().unwrap(),
         to: HASH2.parse().unwrap(),
         value: Value::Number(U256::from(5u64)),
-        confirmations: 1,
         call_data: None,
     };
 
@@ -195,10 +197,16 @@ async fn test_manager_new() {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
         middleware.get_block_number = vec![1];
         middleware.get_transaction_receipt = vec![true];
-        db.get_state_output = Some(Some(State {
-            nonce: Some(U256::from(1u64)),
-            transaction: transaction.clone(),
-            pending_transactions: vec![TRANSACTION_HASH1.parse().unwrap()],
+        db.get_state_output = Some(Some(PersistentState {
+            tx_data: StaticTxData {
+                nonce: 1u64.into(),
+                transaction: transaction.clone(),
+                priority: Priority::Normal,
+                confirmations: 1,
+            },
+            submitted_txs: SubmittedTxs {
+                txs_hashes: vec![TRANSACTION_HASH1.parse().unwrap()],
+            },
         }));
         db.clear_state_output = Some(());
         let result = Manager::new(
@@ -225,10 +233,16 @@ async fn test_manager_new() {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
         middleware.get_block_number = vec![1];
         middleware.get_transaction_receipt = vec![true];
-        db.get_state_output = Some(Some(State {
-            nonce: Some(U256::from(1u64)),
-            transaction: transaction.clone(),
-            pending_transactions: vec![TRANSACTION_HASH1.parse().unwrap()],
+        db.get_state_output = Some(Some(PersistentState {
+            tx_data: StaticTxData {
+                nonce: 1u64.into(),
+                transaction: transaction.clone(),
+                priority: Priority::Normal,
+                confirmations: 1,
+            },
+            submitted_txs: SubmittedTxs {
+                txs_hashes: vec![TRANSACTION_HASH1.parse().unwrap()],
+            },
         }));
         let result = Manager::new(
             middleware,
@@ -630,7 +644,7 @@ fn setup_middleware(mut middleware: MockMiddleware) -> MockMiddleware {
 }
 
 async fn run_send_transaction(
-    confirmations: u32,
+    confirmations: usize,
     f: fn(
         MockMiddleware,
         GasOracle,
@@ -651,15 +665,13 @@ async fn run_send_transaction(
 
     let manager = setup_manager(middleware, gas_oracle, db).await;
     let transaction = Transaction {
-        priority: Priority::Normal,
         from: HASH1.parse().unwrap(),
         to: HASH2.parse().unwrap(),
         value: Value::Number(U256::from(5u64)),
-        confirmations,
         call_data: None,
     };
     manager
-        .send_transaction(transaction, Some(Duration::ZERO))
+        .send_transaction(transaction, confirmations, Priority::Normal)
         .await
         .map(|(_, receipt)| receipt)
 }

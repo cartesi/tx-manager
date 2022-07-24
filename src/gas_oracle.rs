@@ -54,7 +54,7 @@ impl ETHGasStationOracle {
 impl GasOracle for ETHGasStationOracle {
     type Error = GasOracleError;
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     async fn gas_info(
         &self,
         priority: Priority,

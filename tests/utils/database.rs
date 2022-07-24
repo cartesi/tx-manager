@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 
-use tx_manager::manager;
+use tx_manager::transaction;
 
 #[derive(Debug)]
 pub struct Database {
     pub set_state_output: Option<()>,
-    pub get_state_output: Option<Option<manager::State>>,
+    pub get_state_output: Option<Option<transaction::PersistentState>>,
     pub clear_state_output: Option<()>,
 }
 
@@ -42,13 +42,15 @@ impl tx_manager::database::Database for Database {
 
     async fn set_state(
         &mut self,
-        _: &manager::State,
+        _: &transaction::PersistentState,
     ) -> Result<(), Self::Error> {
         unsafe { GLOBAL.set_state_n += 1 };
         self.set_state_output.ok_or(DatabaseError::SetState)
     }
 
-    async fn get_state(&self) -> Result<Option<manager::State>, Self::Error> {
+    async fn get_state(
+        &self,
+    ) -> Result<Option<transaction::PersistentState>, Self::Error> {
         unsafe { GLOBAL.get_state_n += 1 };
         self.get_state_output
             .as_ref()
