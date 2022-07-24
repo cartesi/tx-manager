@@ -72,8 +72,12 @@ pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     configuration: Configuration<T>,
 }
 
-impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
-    Manager<M, GO, DB, T>
+impl<M: Middleware, GO: GasOracle, DB: Database, T: Time> Manager<M, GO, DB, T>
+where
+    M: Send + Sync,
+    GO: Send + Sync,
+    DB: Send + Sync,
+    T: Send + Sync,
 {
     /// Sends and confirms any pending transaction persisted in the database
     /// before returning an instance of the transaction manager. In case a
@@ -155,10 +159,14 @@ impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
     }
 }
 
-impl<M: Middleware, GO: GasOracle, DB: Database, T: Time>
-    Manager<M, GO, DB, T>
+impl<M: Middleware, GO: GasOracle, DB: Database, T: Time> Manager<M, GO, DB, T>
+where
+    M: Send + Sync,
+    GO: Send + Sync,
+    DB: Send + Sync,
+    T: Send + Sync,
 {
-    #[async_recursion(?Send)]
+    #[async_recursion]
     #[tracing::instrument(level = "trace")]
     async fn send_then_confirm_transaction(
         &mut self,

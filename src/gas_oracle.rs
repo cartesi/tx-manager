@@ -10,7 +10,7 @@ use crate::transaction::Priority;
 
 #[async_trait]
 pub trait GasOracle: Debug {
-    type Error: std::error::Error;
+    type Error: std::error::Error + Send + Sync;
 
     async fn gas_info(
         &self,
