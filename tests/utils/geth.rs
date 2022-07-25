@@ -91,11 +91,7 @@ impl GethNode {
     */
 
     pub fn new_account(&self) -> String {
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", "personal.newAccount(\"\")"])
-            .output()
-            .unwrap()
-            .stdout;
+        let output = self.new_command(&"personal.newAccount(\"\")".to_string());
         let s = std::str::from_utf8(&output).unwrap();
         serde_json::from_str(s).unwrap()
     }
@@ -103,12 +99,8 @@ impl GethNode {
     pub fn new_account_with_private_key(&self, private_key: &String) -> String {
         let instruction =
             format!("personal.importRawKey(\"{}\", \"\")", private_key);
-        // println!("{:?}", instruction);
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", &instruction])
-            .output()
-            .unwrap()
-            .stdout;
+        // println!("instruction: {:?}", instruction);
+        let output = self.new_command(&instruction);
         let s = std::str::from_utf8(&output).unwrap();
         serde_json::from_str(s).unwrap()
     }
@@ -119,12 +111,7 @@ impl GethNode {
         instruction.push_str(hash);
         instruction.push_str("\"), \"ether\")");
         // println!("{:?}", instruction);
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", &instruction])
-            .output()
-            .unwrap()
-            .stdout;
-
+        let output = self.new_command(&instruction);
         let s = std::str::from_utf8(&output).unwrap();
         let n: f64 = serde_json::from_str(s).unwrap();
         n as u64
@@ -139,13 +126,17 @@ impl GethNode {
         instruction.push_str(", \"ether\")}");
         instruction.push_str(", \"\")");
         // println!("{:?}", instruction);
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", &instruction])
+        let output = self.new_command(&instruction);
+        let _ = std::str::from_utf8(&output).unwrap();
+    }
+
+    /// Auxiliary.
+    fn new_command(&self, instruction: &String) -> Vec<u8> {
+        Command::new(GETH)
+            .args(["attach", "--exec", instruction, &self.url])
             .output()
             .unwrap()
-            .stdout;
-
-        let _ = std::str::from_utf8(&output).unwrap();
+            .stdout
     }
 }
 
