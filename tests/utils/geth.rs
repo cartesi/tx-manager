@@ -47,12 +47,8 @@ impl GethNode {
         let mut reader = BufReader::new(stdout);
 
         loop {
-            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS)
-                <= Instant::now()
-            {
-                panic!(
-                    "Timed out waiting for geth to start. Is geth installed?"
-                )
+            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
+                panic!("Timed out waiting for geth to start. Is geth installed?")
             }
 
             let mut line = String::new();
@@ -62,9 +58,7 @@ impl GethNode {
 
             // geth 1.9.23 uses "server started" while 1.9.18
             // uses "endpoint opened"
-            if line.contains("HTTP endpoint opened")
-                || line.contains("HTTP server started")
-            {
+            if line.contains("HTTP endpoint opened") || line.contains("HTTP server started") {
                 break;
             }
         }
@@ -97,8 +91,7 @@ impl GethNode {
     }
 
     pub fn new_account_with_private_key(&self, private_key: &str) -> String {
-        let instruction =
-            format!("personal.importRawKey(\"{}\", \"\")", private_key);
+        let instruction = format!("personal.importRawKey(\"{}\", \"\")", private_key);
         // println!("instruction: {:?}", instruction);
         let output = self.new_command(&instruction);
         let s = std::str::from_utf8(&output).unwrap();

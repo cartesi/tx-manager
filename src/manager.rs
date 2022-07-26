@@ -3,8 +3,7 @@ use ethers::{
     providers::Middleware,
     types::{
         transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber,
-        Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256,
-        U256, U64,
+        Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256, U256, U64,
     },
     utils::keccak256,
 };
@@ -15,9 +14,7 @@ use tracing::{info, trace, warn};
 use crate::database::Database;
 use crate::gas_oracle::{GasInfo, GasOracle};
 use crate::time::{DefaultTime, Time};
-use crate::transaction::{
-    PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction,
-};
+use crate::transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction};
 
 // Default values.
 const TRANSACTION_MINING_TIME: Duration = Duration::from_secs(60);
@@ -43,11 +40,12 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 
 #[derive(Debug)]
 pub struct Configuration<T: Time> {
-    /// Time the transaction manager will wait to check whether a transaction was
-    /// mined by a block.
+    /// Time the transaction manager will wait to check whether a transaction
+    /// was mined by a block.
     pub transaction_mining_time: Duration,
 
-    /// Time the transaction manager will wait to check whether a block was mined.
+    /// Time the transaction manager will wait to check whether a block was
+    /// mined.
     pub block_time: Duration,
 
     /// Dependency that handles process sleeping and calculating elapsed time.
@@ -99,23 +97,21 @@ where
             configuration,
         };
 
-        let transaction_receipt =
-            match manager.db.get_state().await.map_err(Error::Database)? {
-                Some(mut state) => {
-                    let wait_time =
-                        manager.wait_time(state.tx_data.confirmations, None);
+        let transaction_receipt = match manager.db.get_state().await.map_err(Error::Database)? {
+            Some(mut state) => {
+                let wait_time = manager.wait_time(state.tx_data.confirmations, None);
 
-                    let transaction_receipt = manager
-                        .confirm_transaction(&mut state, None, wait_time, false)
-                        .await?;
+                let transaction_receipt = manager
+                    .confirm_transaction(&mut state, None, wait_time, false)
+                    .await?;
 
-                    manager.db.clear_state().await.map_err(Error::Database)?;
+                manager.db.clear_state().await.map_err(Error::Database)?;
 
-                    Some(transaction_receipt)
-                }
+                Some(transaction_receipt)
+            }
 
-                None => None,
-            };
+            None => None,
+        };
 
         Ok((manager, transaction_receipt))
     }
@@ -145,8 +141,7 @@ where
             }
         };
 
-        let receipt =
-            self.send_then_confirm_transaction(&mut state, None).await?;
+        let receipt = self.send_then_confirm_transaction(&mut state, None).await?;
 
         info!(
             "Transaction with nonce {:?} was sent. Transaction hash = {:?}.",
@@ -187,8 +182,7 @@ where
             self.configuration.block_time = block_time;
         }
 
-        let wait_time =
-            self.wait_time(tx_data.confirmations, gas_info.mining_time);
+        let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
 
         let request = {
             // Creating the transaction request.
@@ -214,8 +208,7 @@ where
         {
             // Calculating the transaction hash.
             let typed_transaction = &TypedTransaction::Eip1559(request.clone());
-            let transaction_hash =
-                self.transaction_hash(typed_transaction).await?;
+            let transaction_hash = self.transaction_hash(typed_transaction).await?;
 
             // Storing information about the pending
             // transaction in the database.
@@ -262,8 +255,7 @@ where
 
         let start_time = Instant::now();
 
-        let polling_time =
-            polling_time.unwrap_or(self.configuration.transaction_mining_time);
+        let polling_time = polling_time.unwrap_or(self.configuration.transaction_mining_time);
 
         let mut sleep_time = if sleep_first {
             polling_time
@@ -280,8 +272,7 @@ where
 
             match receipt {
                 Some(receipt) => {
-                    let transaction_block =
-                        receipt.block_number.unwrap().as_usize();
+                    let transaction_block = receipt.block_number.unwrap().as_usize();
                     let current_block = self
                         .provider
                         .get_block_number()
@@ -307,15 +298,11 @@ where
                     trace!("No transaction mined.");
 
                     // Have I waited too much?
-                    let elapsed_time =
-                        self.configuration.time.elapsed(start_time);
+                    let elapsed_time = self.configuration.time.elapsed(start_time);
                     if elapsed_time > wait_time {
                         trace!("I have waited too much!");
                         return self
-                            .send_then_confirm_transaction(
-                                state,
-                                Some(polling_time),
-                            )
+                            .send_then_confirm_transaction(state, Some(polling_time))
                             .await;
                     }
 
@@ -326,10 +313,7 @@ where
     }
 
     #[tracing::instrument(level = "trace")]
-    async fn gas_info(
-        &self,
-        priority: Priority,
-    ) -> Result<GasInfo, Error<M, GO, DB>> {
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
         let gas_info = self.gas_oracle.gas_info(priority).await;
         match gas_info {
             Ok(gas_info) => Ok(gas_info),
@@ -370,10 +354,7 @@ where
     }
 
     #[tracing::instrument(level = "trace")]
-    async fn get_max_priority_fee(
-        &self,
-        max_fee: U256,
-    ) -> Result<U256, Error<M, GO, DB>> {
+    async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
         let base_fee = self
             .provider
             .get_block(BlockId::Number(BlockNumber::Latest))
@@ -394,10 +375,7 @@ where
     }
 
     #[tracing::instrument(level = "trace")]
-    async fn get_nonce(
-        &self,
-        address: Address,
-    ) -> Result<U256, Error<M, GO, DB>> {
+    async fn get_nonce(&self, address: Address) -> Result<U256, Error<M, GO, DB>> {
         self.provider
             .get_transaction_count(
                 NameOrAddress::Address(address),
@@ -430,11 +408,10 @@ where
         confirmations: usize,
         transaction_mining_time: Option<Duration>,
     ) -> Duration {
-        let transaction_mining_time = transaction_mining_time
-            .unwrap_or(self.configuration.transaction_mining_time);
+        let transaction_mining_time =
+            transaction_mining_time.unwrap_or(self.configuration.transaction_mining_time);
 
-        let confirmation_time =
-            (confirmations as u32) * self.configuration.block_time;
+        let confirmation_time = (confirmations as u32) * self.configuration.block_time;
 
         transaction_mining_time + confirmation_time
     }

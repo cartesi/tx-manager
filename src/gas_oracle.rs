@@ -12,10 +12,7 @@ use crate::transaction::Priority;
 pub trait GasOracle: Debug {
     type Error: std::error::Error + Send + Sync;
 
-    async fn gas_info(
-        &self,
-        priority: Priority,
-    ) -> Result<GasInfo, Self::Error>;
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,10 +52,7 @@ impl GasOracle for ETHGasStationOracle {
     type Error = GasOracleError;
 
     #[tracing::instrument(level = "trace")]
-    async fn gas_info(
-        &self,
-        priority: Priority,
-    ) -> Result<GasInfo, Self::Error> {
+    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Self::Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
@@ -70,8 +64,7 @@ impl GasOracle for ETHGasStationOracle {
         }
 
         let bytes = &res.bytes().await.map_err(GasOracleError::Request)?;
-        let response = serde_json::from_slice(bytes)
-            .map_err(GasOracleError::ParseResponse)?;
+        let response = serde_json::from_slice(bytes).map_err(GasOracleError::ParseResponse)?;
         let gas_info = (response, priority).into();
         trace!("gas info: {:?}", gas_info);
         return Ok(gas_info);

@@ -17,8 +17,8 @@ use tx_manager::transaction::{
 
 mod utils;
 use utils::{
-    Database, DatabaseStateError, GasOracle, GasOracleError, GethNode,
-    MockMiddleware, MockMiddlewareError, Time,
+    Database, DatabaseStateError, GasOracle, GasOracleError, GethNode, MockMiddleware,
+    MockMiddlewareError, Time,
 };
 
 type MockManagerError = tx_manager::Error<MockMiddleware, GasOracle, Database>;
@@ -49,9 +49,7 @@ async fn test_manager_with_geth() {
 
     // Geth setup.
     let chain_id = 1337u64;
-    let private_key =
-        "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f"
-            .to_owned();
+    let private_key = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_owned();
     let geth = GethNode::start(8545, 12);
     let account1: String = geth.new_account_with_private_key(&private_key);
     let account2: String = geth.new_account();
@@ -186,8 +184,7 @@ async fn test_manager_new() {
             Configuration::default(),
         )
         .await;
-        let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseStateError::Get);
+        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Get);
         assert_err!(result, expected_err);
     }
 
@@ -256,8 +253,7 @@ async fn test_manager_new() {
             },
         )
         .await;
-        let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseStateError::Clear);
+        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
     }
 }
@@ -269,13 +265,12 @@ async fn test_manager_send_transaction_advanced() {
 
     // Resends the transaction once.
     {
-        let result =
-            run_send_transaction(1, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![1];
-                middleware.get_transaction_receipt = vec![false, true];
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(1, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![1];
+            middleware.get_transaction_receipt = vec![false, true];
+            (middleware, gas_oracle, db)
+        })
+        .await;
         assert_ok!(result);
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
@@ -290,14 +285,12 @@ async fn test_manager_send_transaction_advanced() {
 
     // Resends the transaction twice.
     {
-        let result =
-            run_send_transaction(1, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![1];
-                middleware.get_transaction_receipt =
-                    vec![false, false, false, true];
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(1, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![1];
+            middleware.get_transaction_receipt = vec![false, false, false, true];
+            (middleware, gas_oracle, db)
+        })
+        .await;
         assert_ok!(result);
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
@@ -318,7 +311,26 @@ async fn test_manager_send_transaction_basic() {
 
     // Ok (0 confirmations).
     {
-        let result = run_send_transaction(0, |middleware, gas_oracle, db| {
+        let result =
+            run_send_transaction(0, |middleware, gas_oracle, db| (middleware, gas_oracle, db))
+                .await;
+        assert_ok!(result);
+
+        assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
+        assert_eq!(1, MockMiddleware::global().get_block_number_n);
+        assert_eq!(1, MockMiddleware::global().get_block_n);
+        assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
+        assert_eq!(1, MockMiddleware::global().estimate_gas_n);
+        assert_eq!(1, MockMiddleware::global().sign_transaction_n);
+        assert_eq!(1, MockMiddleware::global().send_transaction_n);
+        assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n);
+    }
+
+    // Ok (1 confirmation).
+    {
+        let result = run_send_transaction(1, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![1];
+            middleware.get_transaction_receipt = vec![true];
             (middleware, gas_oracle, db)
         })
         .await;
@@ -334,36 +346,14 @@ async fn test_manager_send_transaction_basic() {
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n);
     }
 
-    // Ok (1 confirmation).
-    {
-        let result =
-            run_send_transaction(1, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![1];
-                middleware.get_transaction_receipt = vec![true];
-                (middleware, gas_oracle, db)
-            })
-            .await;
-        assert_ok!(result);
-
-        assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
-        assert_eq!(1, MockMiddleware::global().get_block_number_n);
-        assert_eq!(1, MockMiddleware::global().get_block_n);
-        assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
-        assert_eq!(1, MockMiddleware::global().estimate_gas_n);
-        assert_eq!(1, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n);
-        assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n);
-    }
-
     // Ok (2 confirmations).
     {
-        let result =
-            run_send_transaction(2, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![1, 1, 1, 2];
-                middleware.get_transaction_receipt = vec![true; 4];
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(2, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![1, 1, 1, 2];
+            middleware.get_transaction_receipt = vec![true; 4];
+            (middleware, gas_oracle, db)
+        })
+        .await;
         assert_ok!(result);
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
@@ -378,14 +368,12 @@ async fn test_manager_send_transaction_basic() {
 
     // Ok (10 confirmations).
     {
-        let result =
-            run_send_transaction(10, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number =
-                    vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-                middleware.get_transaction_receipt = vec![true; 10];
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(10, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+            middleware.get_transaction_receipt = vec![true; 10];
+            (middleware, gas_oracle, db)
+        })
+        .await;
         assert_ok!(result);
 
         assert_eq!(10, MockMiddleware::global().get_block_number_n);
@@ -408,12 +396,11 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // When "Middleware::get_block" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.get_block = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.get_block = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::GetBlock);
         assert_err!(result, expected_err);
@@ -422,27 +409,24 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // When "Middleware::get_transaction_count" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.get_transaction_count = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
-        let expected_err: MockManagerError = tx_manager::Error::Middleware(
-            MockMiddlewareError::GetTransactionCount,
-        );
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.get_transaction_count = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        let expected_err: MockManagerError =
+            tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionCount);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n)
     }
 
     // When "Middleware::estimate_gas" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.estimate_gas = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.estimate_gas = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::EstimateGas);
         assert_err!(result, expected_err);
@@ -451,12 +435,11 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // When "Middleware::sign_transaction" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.sign_transaction = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.sign_transaction = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::SignTransaction);
         assert_err!(result, expected_err);
@@ -465,12 +448,11 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // When "Middleware::send_transaction" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.send_transaction = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.send_transaction = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::SendTransaction);
         assert_err!(result, expected_err);
@@ -479,27 +461,24 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // When "Middleware::get_transaction_receipt" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.get_transaction_receipt = vec![];
-                (middleware, gas_oracle, db)
-            })
-            .await;
-        let expected_err: MockManagerError = tx_manager::Error::Middleware(
-            MockMiddlewareError::GetTransactionReceipt(1),
-        );
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.get_transaction_receipt = vec![];
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        let expected_err: MockManagerError =
+            tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionReceipt(1));
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n)
     }
 
     // When "Middleware::get_block_number" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, gas_oracle, db| {
-                middleware.get_block_number = vec![];
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
+            middleware.get_block_number = vec![];
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::GetBlockNumber);
         assert_err!(result, expected_err);
@@ -514,13 +493,12 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
 
     // When only "GasOracle::gas_info" fails.
     {
-        let result =
-            run_send_transaction(0, |mut middleware, mut gas_oracle, db| {
-                middleware.estimate_eip1559_fees = Some((300, 50));
-                gas_oracle.gas_info_output = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |mut middleware, mut gas_oracle, db| {
+            middleware.estimate_eip1559_fees = Some((300, 50));
+            gas_oracle.gas_info_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         assert_ok!(result);
         assert_eq!(1, GasOracle::global().gas_info_n);
         assert_eq!(1, MockMiddleware::global().estimate_eip1559_fees_n);
@@ -529,12 +507,11 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
     // When both "GasOracle::gas_info" and
     // "Middleware::estimate_eip1559_fees" fail.
     {
-        let result =
-            run_send_transaction(0, |middleware, mut gas_oracle, db| {
-                gas_oracle.gas_info_output = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
+        let result = run_send_transaction(0, |middleware, mut gas_oracle, db| {
+            gas_oracle.gas_info_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
         let expected_err: MockManagerError = tx_manager::Error::GasOracle(
             GasOracleError::GasInfo,
             MockMiddlewareError::EstimateEIP1559Fees,
@@ -552,28 +529,24 @@ async fn test_manager_send_transaction_basic_database_errors() {
 
     // When "Database::set_state" fails.
     {
-        let result =
-            run_send_transaction(0, |middleware, gas_oracle, mut db| {
-                db.set_state_output = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
-        let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseStateError::Set);
+        let result = run_send_transaction(0, |middleware, gas_oracle, mut db| {
+            db.set_state_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Set);
         assert_err!(result, expected_err);
         assert_eq!(1, Database::global().set_state_n);
     }
 
     // When "Database::clear_state" fails.
     {
-        let result =
-            run_send_transaction(0, |middleware, gas_oracle, mut db| {
-                db.clear_state_output = None;
-                (middleware, gas_oracle, db)
-            })
-            .await;
-        let expected_err: MockManagerError =
-            tx_manager::Error::Database(DatabaseStateError::Clear);
+        let result = run_send_transaction(0, |middleware, gas_oracle, mut db| {
+            db.clear_state_output = None;
+            (middleware, gas_oracle, db)
+        })
+        .await;
+        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
         assert_eq!(1, Database::global().clear_state_n);
     }
@@ -645,11 +618,7 @@ fn setup_middleware(mut middleware: MockMiddleware) -> MockMiddleware {
 
 async fn run_send_transaction(
     confirmations: usize,
-    f: fn(
-        MockMiddleware,
-        GasOracle,
-        Database,
-    ) -> (MockMiddleware, GasOracle, Database),
+    f: fn(MockMiddleware, GasOracle, Database) -> (MockMiddleware, GasOracle, Database),
 ) -> Result<TransactionReceipt, MockManagerError> {
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);

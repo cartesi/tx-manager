@@ -10,10 +10,7 @@ use crate::transaction::PersistentState;
 pub trait Database: Debug {
     type Error: std::error::Error;
 
-    async fn set_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), Self::Error>;
+    async fn set_state(&mut self, state: &PersistentState) -> Result<(), Self::Error>;
 
     async fn get_state(&self) -> Result<Option<PersistentState>, Self::Error>;
 
@@ -58,16 +55,12 @@ impl FileSystemDatabase {
 impl Database for FileSystemDatabase {
     type Error = FileSystemDatabaseError;
 
-    async fn set_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), Self::Error> {
+    async fn set_state(&mut self, state: &PersistentState) -> Result<(), Self::Error> {
         let mut file = fs::File::create(self.path.clone())
             .await
             .map_err(Self::Error::CreateFile)?;
 
-        let s =
-            serde_json::to_string_pretty(state).map_err(Self::Error::ToJSON)?;
+        let s = serde_json::to_string_pretty(state).map_err(Self::Error::ToJSON)?;
 
         file.write_all(s.as_bytes())
             .await
@@ -93,8 +86,7 @@ impl Database for FileSystemDatabase {
                     .await
                     .map_err(Self::Error::ReadFile)?;
 
-                let state = serde_json::de::from_str(&s)
-                    .map_err(Self::Error::ParseJSON)?;
+                let state = serde_json::de::from_str(&s).map_err(Self::Error::ParseJSON)?;
 
                 return Ok(Some(state));
             }
@@ -119,9 +111,7 @@ mod test {
     use std::io::Write;
     use std::path::PathBuf;
 
-    use crate::database::{
-        Database, FileSystemDatabase, FileSystemDatabaseError,
-    };
+    use crate::database::{Database, FileSystemDatabase, FileSystemDatabaseError};
     use crate::transaction::{PersistentState, StaticTxData, SubmittedTxs};
     use crate::transaction::{Priority, Transaction, Value};
 

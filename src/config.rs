@@ -4,10 +4,7 @@ use std::fs;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Clone)]
-#[structopt(
-    name = "tx_config",
-    about = "Configuration for transaction manager"
-)]
+#[structopt(name = "tx_config", about = "Configuration for transaction manager")]
 pub struct TxEnvCLIConfig {
     /// Blockchain provider http endpoint url
     #[structopt(long)]
@@ -72,11 +69,7 @@ pub enum Error {
     #[snafu(display("Configuration missing mnemonic"))]
     MissingMnemonic {},
 
-    #[snafu(display(
-        "Could not read mnemonic file at path `{}`: {}",
-        path,
-        source
-    ))]
+    #[snafu(display("Could not read mnemonic file at path `{}`: {}", path, source))]
     MnemonicFileReadError {
         path: String,
         source: std::io::Error,
@@ -119,8 +112,8 @@ impl TxManagerConfig {
                 .ok_or(snafu::NoneError)
                 .context(MissingMnemonicSnafu)?;
 
-            let contents = fs::read_to_string(path.clone())
-                .context(MnemonicFileReadSnafu { path })?;
+            let contents =
+                fs::read_to_string(path.clone()).context(MnemonicFileReadSnafu { path })?;
 
             contents.trim().to_string()
         };

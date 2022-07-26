@@ -1,13 +1,9 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
-use ethers::types::{
-    Address, Eip1559TransactionRequest, NameOrAddress, H256, U256, U64,
-};
+use ethers::types::{Address, Eip1559TransactionRequest, NameOrAddress, H256, U256, U64};
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
     Low,
     Normal,

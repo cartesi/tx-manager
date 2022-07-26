@@ -1,12 +1,9 @@
 use async_trait::async_trait;
-use ethers::providers::{
-    FromErr, Middleware, MockProvider, PendingTransaction, Provider,
-};
+use ethers::providers::{FromErr, Middleware, MockProvider, PendingTransaction, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    Address, Block, BlockId, NameOrAddress, Signature, TransactionReceipt,
-    TxHash, U256, U64,
+    Address, Block, BlockId, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
 use std::collections::HashMap;
@@ -97,10 +94,7 @@ impl Middleware for MockMiddleware {
         &self.provider.0
     }
 
-    async fn estimate_gas(
-        &self,
-        _: &TypedTransaction,
-    ) -> Result<U256, Self::Error> {
+    async fn estimate_gas(&self, _: &TypedTransaction) -> Result<U256, Self::Error> {
         unsafe {
             GLOBAL.estimate_gas_n += 1;
         }
@@ -216,8 +210,7 @@ impl Middleware for MockMiddleware {
             .map(|_| TxHash(keccak256(bytes)))
             .ok_or(MockMiddlewareError::SendTransaction)?;
 
-        let pending_transaction =
-            PendingTransaction::new(hash, self.provider());
+        let pending_transaction = PendingTransaction::new(hash, self.provider());
         unsafe {
             let current_block = GLOBAL.get_block_number_n;
             GLOBAL.insert_transaction(*pending_transaction, current_block);
