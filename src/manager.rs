@@ -1,13 +1,14 @@
 use async_recursion::async_recursion;
-use ethers::providers::Middleware;
-use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{
-    Address, BlockId, BlockNumber, Eip1559TransactionRequest, NameOrAddress,
-    TransactionReceipt, H256, U256, U64,
+use ethers::{
+    providers::Middleware,
+    types::{
+        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber,
+        Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256,
+        U256, U64,
+    },
+    utils::keccak256,
 };
-use ethers::utils::keccak256;
 use std::default::Default;
-use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::{info, trace, warn};
 
