@@ -4,7 +4,10 @@ use std::fs;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Clone)]
-#[structopt(name = "tx_config", about = "Configuration for transaction manager")]
+#[structopt(
+    name = "tx_config",
+    about = "Configuration for transaction manager"
+)]
 pub struct TxEnvCLIConfig {
     /// Blockchain provider http endpoint url
     #[structopt(long)]
