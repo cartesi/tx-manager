@@ -10,7 +10,7 @@ authors = [
 ]
 
 [dependencies]
-ethers = { version = "0.15" }
+ethers = { version = "0.17", features = ["rustls"] }
 tokio = { version = "1", features = ["fs", "macros"] }
 serde = "1.0"
 serde_json = "1.0"
