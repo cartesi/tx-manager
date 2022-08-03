@@ -3,7 +3,7 @@ use ethers::providers::{FromErr, Middleware, MockProvider, PendingTransaction, P
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    Address, Block, BlockId, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
+    Address, Block, BlockId, Bytes, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
 use std::collections::HashMap;
@@ -193,28 +193,26 @@ impl Middleware for MockMiddleware {
         }
     }
 
-    async fn send_transaction<T: Into<TypedTransaction> + Send + Sync>(
-        &self,
-        tx: T,
-        _: Option<BlockId>,
-    ) -> Result<PendingTransaction<'_, Self::Provider>, Self::Error> {
+    async fn send_raw_transaction<'a>(
+        &'a self,
+        tx: Bytes,
+    ) -> Result<PendingTransaction<'a, Self::Provider>, Self::Error> {
         unsafe {
             GLOBAL.send_transaction_n += 1;
-            GLOBAL.sign_transaction_n -= 1;
         }
-        let tx: &TypedTransaction = &tx.into();
-        let signature = self.sign_transaction(tx, *tx.from().unwrap()).await?;
-        let bytes = tx.rlp_signed(&signature);
+
         let hash = self
             .send_transaction
-            .map(|_| TxHash(keccak256(bytes)))
+            .map(|_| TxHash(keccak256(tx)))
             .ok_or(MockMiddlewareError::SendTransaction)?;
 
         let pending_transaction = PendingTransaction::new(hash, self.provider());
+
         unsafe {
             let current_block = GLOBAL.get_block_number_n;
             GLOBAL.insert_transaction(*pending_transaction, current_block);
         }
+
         Ok(pending_transaction)
     }
 

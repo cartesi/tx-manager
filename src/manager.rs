@@ -2,10 +2,9 @@ use async_recursion::async_recursion;
 use ethers::{
     providers::Middleware,
     types::{
-        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber,
+        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes,
         Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256, U256, U64,
     },
-    utils::keccak256,
 };
 use std::default::Default;
 use std::time::{Duration, Instant};
@@ -184,7 +183,7 @@ where
 
         let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
 
-        let request = {
+        let request: TypedTransaction = {
             // Creating the transaction request.
             let mut request: Eip1559TransactionRequest =
                 tx_data.transaction.to_eip_1559_transaction_request(
@@ -202,17 +201,16 @@ where
                     .map_err(Error::Middleware)?,
             );
 
-            request
+            request.into()
         };
 
         {
             // Calculating the transaction hash.
-            let typed_transaction = &TypedTransaction::Eip1559(request.clone());
-            let transaction_hash = self.transaction_hash(typed_transaction).await?;
+            let (tx_hash, raw_tx) = self.raw_transaction(&request).await?;
 
             // Storing information about the pending
             // transaction in the database.
-            state.submitted_txs.add_tx_hash(transaction_hash);
+            state.submitted_txs.add_tx_hash(tx_hash);
             self.db.set_state(state).await.map_err(Error::Database)?;
 
             trace!(
@@ -224,12 +222,12 @@ where
             // TODO: ignore the replacement transaction underpriced error?
             let pending_transaction = self
                 .provider
-                .send_transaction(request, None)
+                .send_raw_transaction(raw_tx)
                 .await
                 .map_err(Error::Middleware)?;
 
             assert_eq!(
-                transaction_hash,
+                tx_hash,
                 H256(*pending_transaction.as_fixed_bytes()),
                 "stored hash is different from the pending transaction's hash"
             );
@@ -387,19 +385,22 @@ where
 
     /// Calculates the transaction hash.
     #[tracing::instrument(level = "trace")]
-    async fn transaction_hash(
+    async fn raw_transaction(
         &self,
         typed_transaction: &TypedTransaction,
-    ) -> Result<H256, Error<M, GO, DB>> {
+    ) -> Result<(H256, Bytes), Error<M, GO, DB>> {
         let from = *typed_transaction.from().unwrap();
+
         let signature = self
             .provider
             .sign_transaction(typed_transaction, from)
             .await
             .map_err(Error::Middleware)?;
-        let bytes = typed_transaction.rlp_signed(&signature);
-        let hash = keccak256(bytes);
-        Ok(H256(hash))
+
+        let hash = typed_transaction.hash(&signature);
+        let rlp_data = typed_transaction.rlp_signed(&signature);
+
+        Ok((hash, rlp_data))
     }
 
     #[tracing::instrument(level = "trace")]
