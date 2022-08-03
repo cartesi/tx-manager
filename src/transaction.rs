@@ -53,7 +53,7 @@ impl From<Value> for Option<U256> {
     fn from(value: Value) -> Self {
         match value {
             Value::Number(v) => Some(v),
-            Value::Nothing => None,
+            Value::Nothing => Some(0.into()),
         }
     }
 }
