@@ -219,7 +219,10 @@ mod test {
         assert!(result.is_err());
         let err = result.as_ref().err().unwrap();
         assert!(
-            matches!(err, FileSystemDatabaseError::CreateFile(err) if err.kind() == std::io::ErrorKind::PermissionDenied),
+            matches!(err,
+                FileSystemDatabaseError::CreateFile(err)
+                    if err.kind() == std::io::ErrorKind::PermissionDenied
+            ),
             "expected CreateFile::PermissionDenied error, got {}",
             err
         );
@@ -301,7 +304,10 @@ mod test {
         assert!(result.is_err());
         let err = result.as_ref().err().unwrap();
         assert!(
-            matches!(err, FileSystemDatabaseError::ParseJSON(err) if err.classify() == Category::Syntax),
+            matches!(err,
+                FileSystemDatabaseError::ParseJSON(err)
+                    if err.classify() == Category::Syntax
+            ),
             "expected ParseJSON::Syntax error, got {}",
             err
         );
@@ -333,7 +339,10 @@ mod test {
         assert!(result.is_err());
         let err = result.as_ref().err().unwrap();
         assert!(
-            matches!(err, FileSystemDatabaseError::DeleteFile(err) if err.kind() == std::io::ErrorKind::NotFound),
+            matches!(err,
+                FileSystemDatabaseError::DeleteFile(err)
+                    if err.kind() == std::io::ErrorKind::NotFound
+            ),
             "expected DeleteFile::NotFound error. got {}",
             err
         );

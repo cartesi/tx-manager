@@ -39,12 +39,10 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 
 #[derive(Debug)]
 pub struct Configuration<T: Time> {
-    /// Time the transaction manager will wait to check whether a transaction
-    /// was mined by a block.
+    /// Time the transaction manager will wait to check whether a transaction was mined by a block.
     pub transaction_mining_time: Duration,
 
-    /// Time the transaction manager will wait to check whether a block was
-    /// mined.
+    /// Time the transaction manager will wait to check whether a block was mined.
     pub block_time: Duration,
 
     /// Dependency that handles process sleeping and calculating elapsed time.
@@ -77,9 +75,9 @@ where
     DB: Send + Sync,
     T: Send + Sync,
 {
-    /// Sends and confirms any pending transaction persisted in the database
-    /// before returning an instance of the transaction manager. In case a
-    /// pending transaction was mined, it's receipt is also returned.
+    /// Sends and confirms any pending transaction persisted in the database before returning an
+    /// instance of the transaction manager. In case a pending transaction was mined, it's receipt
+    /// is also returned.
     #[tracing::instrument(level = "trace")]
     pub async fn new(
         provider: M,
@@ -115,6 +113,7 @@ where
         Ok((manager, transaction_receipt))
     }
 
+    /// Sends a transaction and returns the receipt.
     #[tracing::instrument(level = "trace")]
     pub async fn send_transaction(
         mut self,
@@ -209,8 +208,7 @@ where
             // Calculating the transaction hash.
             let (tx_hash, raw_tx) = self.raw_transaction(&request).await?;
 
-            // Storing information about the pending
-            // transaction in the database.
+            // Storing information about the pending transaction in the database.
             state.submitted_txs.add_tx_hash(tx_hash);
             self.db.set_state(state).await.map_err(Error::Database)?;
 
