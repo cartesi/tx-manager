@@ -143,6 +143,105 @@ async fn test_manager_with_geth() {
 
 #[tokio::test]
 #[serial]
+async fn test_manager_with_geth_smart_contract() {
+    setup_tracing();
+
+    // Geth setup.
+    let chain_id = 1337u64;
+    let private_key = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_owned();
+    let geth = GethNode::start(8545, 12);
+    let account1: String = geth.new_account_with_private_key(&private_key);
+    let account2: String = geth.new_account();
+    const INITIAL_FUNDS: u64 = 100;
+    geth.give_funds(&account1, INITIAL_FUNDS);
+
+    // Waiting for the funds to be credited.
+    let account2_balance = geth.check_balance_in_ethers(&account2);
+    assert!(account2_balance == 0);
+    loop {
+        let account1_balance = geth.check_balance_in_ethers(&account1);
+        if account1_balance == 100 {
+            break;
+        } else {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    // Instantiating the manager.
+    let manager = {
+        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
+        let signer: LocalWallet = private_key.parse().unwrap();
+        let signer = signer.with_chain_id(chain_id);
+        let provider = SignerMiddleware::new(provider, signer);
+        let gas_oracle = ETHGasStationOracle::new("api key".to_string());
+        let database_path = "./test_database.json";
+        let _ = remove_file(database_path);
+        let database = FileSystemDatabase::new(database_path.to_string());
+        let result = Manager::new(
+            provider,
+            Some(gas_oracle),
+            database,
+            chain_id.into(),
+            Configuration {
+                transaction_mining_time: Duration::from_secs(1),
+                block_time: Duration::from_secs(1),
+                time: DefaultTime,
+            },
+        )
+        .await;
+        assert_ok!(result);
+        let (manager, _) = result.unwrap();
+        manager
+    };
+
+    // Sending the first transaction.
+    let amount1 = 10u64; // in ethers
+    let manager = {
+        let transaction = Transaction {
+            from: account1.parse().unwrap(),
+            to: account2.parse().unwrap(),
+            value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
+            call_data: None,
+        };
+
+        let result = manager
+            .send_transaction(transaction, 3, Priority::Normal)
+            .await;
+
+        assert_ok!(result);
+        let (manager, _) = result.unwrap();
+        let account1_balance = geth.check_balance_in_ethers(&account1);
+        assert!(account1_balance == INITIAL_FUNDS - amount1 - 1);
+        let account2_balance = geth.check_balance_in_ethers(&account2);
+        assert!(account2_balance == amount1);
+        manager
+    };
+
+    // Sending the second transaction
+    let amount2 = 25u64; // in ethers
+    {
+        let transaction = Transaction {
+            from: account1.parse().unwrap(),
+            to: account2.parse().unwrap(),
+            value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
+            call_data: None,
+        };
+
+        let result = manager
+            .send_transaction(transaction, 1, Priority::ASAP)
+            .await;
+
+        assert_ok!(result);
+        let (_, _) = result.unwrap();
+        let account1_balance = geth.check_balance_in_ethers(&account1);
+        assert!(account1_balance == INITIAL_FUNDS - amount1 - amount2 - 1);
+        let account2_balance = geth.check_balance_in_ethers(&account2);
+        assert!(account2_balance == amount1 + amount2);
+    }
+}
+
+#[tokio::test]
+#[serial]
 async fn test_manager_new() {
     setup_tracing();
     let chain_id = U64::from(1u64);
@@ -171,8 +270,8 @@ async fn test_manager_new() {
         assert_eq!(transaction_receipt, None);
     }
 
-    // Trying to instantiate new transaction manager without being able to
-    // check if there is a transaction pending.
+    // Trying to instantiate new transaction manager without being able to check if there is a
+    // transaction pending.
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = None;
@@ -223,8 +322,8 @@ async fn test_manager_new() {
         assert!(transaction_receipt.is_some());
     };
 
-    // Trying to instantiate a new transaction manager that has one pending
-    // transaction without being able to clear the state after the confirmation.
+    // Trying to instantiate a new transaction manager that has one pending transaction without
+    // being able to clear the state after the confirmation.
     // The pending transaction's hash is transaction_hash[0].
     {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
@@ -278,7 +377,7 @@ async fn test_manager_send_transaction_advanced() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(2, MockMiddleware::global().estimate_gas_n);
         assert_eq!(2, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(2, MockMiddleware::global().send_transaction_n);
+        assert_eq!(2, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(2, MockMiddleware::global().get_transaction_receipt_n);
     }
 
@@ -297,7 +396,7 @@ async fn test_manager_send_transaction_advanced() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(3, MockMiddleware::global().estimate_gas_n);
         assert_eq!(3, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(3, MockMiddleware::global().send_transaction_n);
+        assert_eq!(3, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(4, MockMiddleware::global().get_transaction_receipt_n);
     }
 }
@@ -319,7 +418,7 @@ async fn test_manager_send_transaction_basic() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n);
+        assert_eq!(1, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n);
     }
 
@@ -338,7 +437,7 @@ async fn test_manager_send_transaction_basic() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n);
+        assert_eq!(1, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n);
     }
 
@@ -357,7 +456,7 @@ async fn test_manager_send_transaction_basic() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n);
+        assert_eq!(1, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(4, MockMiddleware::global().get_transaction_receipt_n);
     }
 
@@ -375,7 +474,7 @@ async fn test_manager_send_transaction_basic() {
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n);
+        assert_eq!(1, MockMiddleware::global().send_raw_transaction_n);
         assert_eq!(10, MockMiddleware::global().get_transaction_receipt_n);
     }
 }
@@ -437,7 +536,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         let expected_err: MockManagerError =
             tx_manager::Error::Middleware(MockMiddlewareError::SendTransaction);
         assert_err!(result, expected_err);
-        assert_eq!(1, MockMiddleware::global().send_transaction_n)
+        assert_eq!(1, MockMiddleware::global().send_raw_transaction_n)
     }
 
     // When "Middleware::get_transaction_receipt" fails.

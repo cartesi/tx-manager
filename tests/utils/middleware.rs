@@ -175,7 +175,7 @@ impl Middleware for MockMiddleware {
         tx: Bytes,
     ) -> Result<PendingTransaction<'a, Self::Provider>, Self::Error> {
         unsafe {
-            GLOBAL.send_transaction_n += 1;
+            GLOBAL.send_raw_transaction_n += 1;
         }
 
         let hash = self
@@ -232,7 +232,7 @@ pub struct Global {
     pub estimate_eip1559_fees_n: i32,
     pub get_transaction_count_n: i32,
     pub get_transaction_receipt_n: i32,
-    pub send_transaction_n: i32,
+    pub send_raw_transaction_n: i32,
     pub sign_transaction_n: i32,
 }
 
@@ -248,7 +248,7 @@ impl Global {
             estimate_eip1559_fees_n: 0,
             get_transaction_count_n: 0,
             get_transaction_receipt_n: 0,
-            send_transaction_n: 0,
+            send_raw_transaction_n: 0,
             sign_transaction_n: 0,
         }
     }

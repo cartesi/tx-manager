@@ -183,8 +183,8 @@ where
         }
         let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
 
+        // Creating the transaction request.
         let request: TypedTransaction = {
-            // Creating the transaction request.
             let mut request: Eip1559TransactionRequest =
                 tx_data.transaction.to_eip_1559_transaction_request(
                     self.chain_id,
@@ -206,10 +206,10 @@ where
 
         {
             // Calculating the transaction hash.
-            let (tx_hash, raw_tx) = self.raw_transaction(&request).await?;
+            let (transaction_hash, raw_transaction) = self.raw_transaction(&request).await?;
 
             // Storing information about the pending transaction in the database.
-            state.submitted_txs.add_tx_hash(tx_hash);
+            state.submitted_txs.add_tx_hash(transaction_hash);
             self.db.set_state(state).await.map_err(Error::Database)?;
 
             trace!(
@@ -217,16 +217,16 @@ where
                 state.submitted_txs.tx_count()
             );
 
+            // FIXME: ignore the replacement transaction underpriced error?
             // Sending the transaction.
-            // TODO: ignore the replacement transaction underpriced error?
             let pending_transaction = self
                 .provider
-                .send_raw_transaction(raw_tx)
+                .send_raw_transaction(raw_transaction)
                 .await
                 .map_err(Error::Middleware)?;
 
             assert_eq!(
-                tx_hash,
+                transaction_hash,
                 H256(*pending_transaction.as_fixed_bytes()),
                 "stored hash is different from the pending transaction's hash"
             );
@@ -389,7 +389,7 @@ where
             .map_err(Error::Middleware)
     }
 
-    /// Calculates the transaction hash.
+    /// Returns the transaction hash and the raw transaction.
     #[tracing::instrument(level = "trace")]
     async fn raw_transaction(
         &self,

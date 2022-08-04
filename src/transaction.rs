@@ -32,7 +32,7 @@ impl Transaction {
             from: Some(self.from),
             to: Some(NameOrAddress::Address(self.to)),
             gas: None, // must be set after
-            value: self.value.into(),
+            value: Some(self.value.into()),
             data: self.call_data.clone(),
             nonce: Some(nonce),
             access_list: AccessList::default(),
@@ -49,11 +49,11 @@ pub enum Value {
     // All,
 }
 
-impl From<Value> for Option<U256> {
+impl From<Value> for U256 {
     fn from(value: Value) -> Self {
         match value {
-            Value::Number(v) => Some(v),
-            Value::Nothing => Some(0.into()),
+            Value::Number(v) => v,
+            Value::Nothing => 0.into(),
         }
     }
 }
