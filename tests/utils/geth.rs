@@ -111,6 +111,7 @@ impl GethNode {
     }
 
     pub async fn give_funds(&self, to: &str, amount_in_ethers: u64) {
+        let balance = self.check_balance_in_ethers(to);
         let mut instruction: String = "personal.sendTransaction(".to_owned();
         instruction.push_str("{from: eth.coinbase, to: \"");
         instruction.push_str(to);
@@ -124,7 +125,7 @@ impl GethNode {
 
         // Waiting for the funds to be credited.
         loop {
-            if self.check_balance_in_ethers(to) == amount_in_ethers {
+            if self.check_balance_in_ethers(to) == balance + amount_in_ethers {
                 break;
             } else {
                 tokio::time::sleep(Duration::from_secs(1)).await;
