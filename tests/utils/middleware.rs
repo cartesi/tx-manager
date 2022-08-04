@@ -3,7 +3,7 @@ use ethers::providers::{FromErr, Middleware, MockProvider, PendingTransaction, P
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{
-    Address, Block, BlockId, Bytes, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
+    Address, BlockId, Bytes, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
 };
 use ethers::utils::keccak256;
 use std::collections::HashMap;
@@ -14,9 +14,6 @@ use std::collections::HashMap;
 pub enum MockMiddlewareError {
     #[error("mock middleware error: estimate gas")]
     EstimateGas,
-
-    #[error("mock middleware error: get block")]
-    GetBlock,
 
     #[error("mock middleware error: get block number")]
     GetBlockNumber,
@@ -47,7 +44,6 @@ impl FromErr<MockMiddlewareError> for MockMiddlewareError {
 pub struct MockMiddleware {
     provider: (Provider<MockProvider>, MockProvider),
     pub estimate_gas: Option<U256>,
-    pub get_block: Option<()>,
     pub get_block_number: Vec<u32>,
     pub estimate_eip1559_fees: Option<(u32, u32)>,
     pub get_transaction_count: Option<()>,
@@ -65,7 +61,6 @@ impl MockMiddleware {
         Self {
             provider: Provider::mocked(),
             estimate_gas: None,
-            get_block: None,
             get_block_number: Vec::new(),
             estimate_eip1559_fees: None,
             get_transaction_count: None,
@@ -99,24 +94,6 @@ impl Middleware for MockMiddleware {
             GLOBAL.estimate_gas_n += 1;
         }
         self.estimate_gas.ok_or(MockMiddlewareError::EstimateGas)
-    }
-
-    async fn get_block<T: Into<BlockId> + Send + Sync>(
-        &self,
-        _: T,
-    ) -> Result<Option<Block<TxHash>>, Self::Error> {
-        unsafe {
-            GLOBAL.get_block_n += 1;
-        }
-
-        let block = Block::<TxHash> {
-            base_fee_per_gas: Some(u256(250)),
-            ..Default::default()
-        };
-
-        self.get_block
-            .map(|_| Some(block))
-            .ok_or(MockMiddlewareError::GetBlock)
     }
 
     async fn get_block_number(&self) -> Result<U64, Self::Error> {
@@ -251,7 +228,6 @@ pub struct Global {
 
     // Stores how many times each function was called.
     pub estimate_gas_n: i32,
-    pub get_block_n: i32,
     pub get_block_number_n: i32,
     pub estimate_eip1559_fees_n: i32,
     pub get_transaction_count_n: i32,
@@ -268,7 +244,6 @@ impl Global {
             nonce: 0,
             sent_transactions: None,
             estimate_gas_n: 0,
-            get_block_n: 0,
             get_block_number_n: 0,
             estimate_eip1559_fees_n: 0,
             get_transaction_count_n: 0,

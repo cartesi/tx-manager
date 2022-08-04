@@ -64,7 +64,7 @@ impl Default for Configuration<DefaultTime> {
 #[derive(Debug)]
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     provider: M,
-    gas_oracle: GO,
+    gas_oracle: Option<GO>,
     db: DB,
     chain_id: U64,
     configuration: Configuration<T>,
@@ -83,7 +83,7 @@ where
     #[tracing::instrument(level = "trace")]
     pub async fn new(
         provider: M,
-        gas_oracle: GO,
+        gas_oracle: Option<GO>,
         db: DB,
         chain_id: U64,
         configuration: Configuration<T>,
@@ -173,14 +173,15 @@ where
         let tx_data = &state.tx_data;
 
         // Estimating gas prices and sleep times.
-        let gas_info = self.gas_info(tx_data.priority).await?;
-        let max_fee = gas_info.gas_price;
-        let max_priority_fee = self.get_max_priority_fee(max_fee).await?;
-
+        let gas_info: GasInfo = self.gas_info(tx_data.priority).await?;
+        let max_fee = gas_info.max_fee;
+        let max_priority_fee = match gas_info.max_priority_fee {
+            Some(max_priority_fee) => max_priority_fee,
+            None => self.get_max_priority_fee(max_fee).await?,
+        };
         if let Some(block_time) = gas_info.block_time {
             self.configuration.block_time = block_time;
         }
-
         let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
 
         let request: TypedTransaction = {
@@ -310,47 +311,36 @@ where
         }
     }
 
+    /// Retrieves the max fee and max priority fee from the provider and packs it inside GasInfo.
+    async fn provider_gas_info(&self) -> Result<GasInfo, M::Error> {
+        let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
+        Ok(GasInfo {
+            max_fee,
+            max_priority_fee: Some(max_priority_fee),
+            mining_time: None,
+            block_time: None,
+        })
+    }
+
+    /// Retrieves the gas info from the gas oracle if there is one, or from the provider otherwise.
     #[tracing::instrument(level = "trace")]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
-        let gas_info = self.gas_oracle.gas_info(priority).await;
-        match gas_info {
-            Ok(gas_info) => Ok(gas_info),
-
-            Err(err1) => {
-                warn!("Gas oracle has failed with error {:?}.", err1);
-                let (max_fee, _max_priority_fee) = self
-                    .provider
-                    .estimate_eip1559_fees(None)
-                    .await
-                    .map_err(|err2| Error::GasOracle(err1, err2))?;
-
-                Ok(GasInfo {
-                    gas_price: max_fee,
-                    mining_time: None,
-                    block_time: None,
-                })
-            }
+        match &self.gas_oracle {
+            Some(gas_oracle) => match gas_oracle.gas_info(priority).await {
+                Ok(gas_info) => Ok(gas_info),
+                Err(err1) => {
+                    warn!("Gas oracle has failed with error {:?}.", err1);
+                    self.provider_gas_info()
+                        .await
+                        .map_err(|err2| Error::GasOracle(err1, err2))
+                }
+            },
+            None => self.provider_gas_info().await.map_err(Error::Middleware),
         }
     }
 
-    #[tracing::instrument(level = "trace")]
-    async fn get_mined_transaction(
-        &self,
-        state: &mut PersistentState,
-    ) -> Result<Option<TransactionReceipt>, Error<M, GO, DB>> {
-        for &hash in &state.submitted_txs {
-            if let Some(receipt) = self
-                .provider
-                .get_transaction_receipt(hash)
-                .await
-                .map_err(Error::Middleware)?
-            {
-                return Ok(Some(receipt));
-            }
-        }
-        Ok(None)
-    }
-
+    /// Calculates the max priority fee using the max fee and the base fee (retrieved using the
+    /// provider).
     #[tracing::instrument(level = "trace")]
     async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
         let base_fee = self
@@ -370,6 +360,24 @@ where
         );
 
         Ok(max_fee - base_fee)
+    }
+
+    #[tracing::instrument(level = "trace")]
+    async fn get_mined_transaction(
+        &self,
+        state: &mut PersistentState,
+    ) -> Result<Option<TransactionReceipt>, Error<M, GO, DB>> {
+        for &hash in &state.submitted_txs {
+            if let Some(receipt) = self
+                .provider
+                .get_transaction_receipt(hash)
+                .await
+                .map_err(Error::Middleware)?
+            {
+                return Ok(Some(receipt));
+            }
+        }
+        Ok(None)
     }
 
     #[tracing::instrument(level = "trace")]
@@ -411,9 +419,7 @@ where
     ) -> Duration {
         let transaction_mining_time =
             transaction_mining_time.unwrap_or(self.configuration.transaction_mining_time);
-
         let confirmation_time = (confirmations as u32) * self.configuration.block_time;
-
         transaction_mining_time + confirmation_time
     }
 }

@@ -6,26 +6,13 @@ use serde::Deserialize;
 use std::fmt::Debug;
 use tracing::trace;
 
+use crate::gas_oracle::{GasInfo, GasOracle};
 use crate::transaction::Priority;
 
-#[async_trait]
-pub trait GasOracle: Debug {
-    type Error: std::error::Error + Send + Sync;
-
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Self::Error>;
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct GasInfo {
-    pub gas_price: U256, // in wei
-    pub mining_time: Option<Duration>,
-    pub block_time: Option<Duration>,
-}
-
-// Implementation using the ETH Gas Station API.
+/// Implementation that uses the ETH Gas Station API.
 
 #[derive(Debug, thiserror::Error)]
-pub enum GasOracleError {
+pub enum ETHGasStationError {
     #[error("GET request error: {0}")]
     Request(reqwest::Error),
 
@@ -49,7 +36,7 @@ impl ETHGasStationOracle {
 
 #[async_trait]
 impl GasOracle for ETHGasStationOracle {
-    type Error = GasOracleError;
+    type Error = ETHGasStationError;
 
     #[tracing::instrument(level = "trace")]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Self::Error> {
@@ -58,13 +45,15 @@ impl GasOracle for ETHGasStationOracle {
             self.api_key
         );
 
-        let res = reqwest::get(url).await.map_err(GasOracleError::Request)?;
+        let res = reqwest::get(url)
+            .await
+            .map_err(ETHGasStationError::Request)?;
         if res.status() != StatusCode::OK {
-            return Err(GasOracleError::StatusCode(res.status()));
+            return Err(ETHGasStationError::StatusCode(res.status()));
         }
 
-        let bytes = &res.bytes().await.map_err(GasOracleError::Request)?;
-        let response = serde_json::from_slice(bytes).map_err(GasOracleError::ParseResponse)?;
+        let bytes = &res.bytes().await.map_err(ETHGasStationError::Request)?;
+        let response = serde_json::from_slice(bytes).map_err(ETHGasStationError::ParseResponse)?;
         let gas_info = (response, priority).into();
         trace!("gas info: {:?}", gas_info);
         return Ok(gas_info);
@@ -98,14 +87,17 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
             Priority::ASAP => (response.fastest, response.fastest_time),
         };
 
-        // from 10*gwei to wei
-        let mut gas_price = U256::from(gas_price);
-        gas_price = gas_price.checked_mul(U256::exp10(10)).unwrap();
+        // max fee from 10*gwei to wei
+        let max_fee = U256::from(gas_price).checked_mul(U256::exp10(10)).unwrap();
+        let max_priority_fee = None;
+        let mining_time = Some(Duration::from_secs((mining_time * 60.) as u64));
+        let block_time = Some(Duration::from_secs((response.block_time) as u64));
 
         GasInfo {
-            gas_price,
-            mining_time: Some(Duration::from_secs((mining_time * 60.) as u64)),
-            block_time: Some(Duration::from_secs((response.block_time) as u64)),
+            max_fee,
+            max_priority_fee,
+            mining_time,
+            block_time,
         }
     }
 }
@@ -125,25 +117,29 @@ mod tests {
         let result = gas_oracle.gas_info(Priority::Low).await;
         assert!(result.is_ok(), "{:?}", result);
         let gas_info_low = result.unwrap();
+        assert!(gas_info_low.max_priority_fee.is_none());
 
         // ok => priority normal
         let result = gas_oracle.gas_info(Priority::Normal).await;
         assert!(result.is_ok());
         let gas_info_normal = result.unwrap();
+        assert!(gas_info_normal.max_priority_fee.is_none());
 
         // ok => priority high
         let result = gas_oracle.gas_info(Priority::High).await;
         assert!(result.is_ok());
         let gas_info_high = result.unwrap();
+        assert!(gas_info_high.max_priority_fee.is_none());
 
         // ok => priority ASAP
         let result = gas_oracle.gas_info(Priority::ASAP).await;
         assert!(result.is_ok());
         let gas_info_asap = result.unwrap();
+        assert!(gas_info_asap.max_priority_fee.is_none());
 
-        assert!(gas_info_low.gas_price <= gas_info_normal.gas_price);
-        assert!(gas_info_normal.gas_price <= gas_info_high.gas_price);
-        assert!(gas_info_high.gas_price <= gas_info_asap.gas_price);
+        assert!(gas_info_low.max_fee <= gas_info_normal.max_fee);
+        assert!(gas_info_normal.max_fee <= gas_info_high.max_fee);
+        assert!(gas_info_high.max_fee <= gas_info_asap.max_fee);
     }
 
     #[tokio::test]

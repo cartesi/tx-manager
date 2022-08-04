@@ -80,7 +80,7 @@ async fn test_manager_with_geth() {
         let database = FileSystemDatabase::new(database_path.to_string());
         let result = Manager::new(
             provider,
-            gas_oracle,
+            Some(gas_oracle),
             database,
             chain_id.into(),
             Configuration {
@@ -160,7 +160,7 @@ async fn test_manager_new() {
         db.get_state_output = Some(None);
         let result = Manager::new(
             middleware,
-            gas_oracle,
+            Some(gas_oracle),
             db,
             chain_id,
             Configuration::default(),
@@ -178,7 +178,7 @@ async fn test_manager_new() {
         db.get_state_output = None;
         let result = Manager::new(
             middleware,
-            gas_oracle,
+            Some(gas_oracle),
             db,
             chain_id,
             Configuration::default(),
@@ -208,7 +208,7 @@ async fn test_manager_new() {
         db.clear_state_output = Some(());
         let result = Manager::new(
             middleware,
-            gas_oracle,
+            Some(gas_oracle),
             db,
             chain_id,
             Configuration {
@@ -243,7 +243,7 @@ async fn test_manager_new() {
         }));
         let result = Manager::new(
             middleware,
-            gas_oracle,
+            Some(gas_oracle),
             db,
             chain_id,
             Configuration {
@@ -275,7 +275,6 @@ async fn test_manager_send_transaction_advanced() {
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
         assert_eq!(1, MockMiddleware::global().get_block_number_n);
-        assert_eq!(2, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(2, MockMiddleware::global().estimate_gas_n);
         assert_eq!(2, MockMiddleware::global().sign_transaction_n);
@@ -295,7 +294,6 @@ async fn test_manager_send_transaction_advanced() {
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
         assert_eq!(1, MockMiddleware::global().get_block_number_n);
-        assert_eq!(3, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(3, MockMiddleware::global().estimate_gas_n);
         assert_eq!(3, MockMiddleware::global().sign_transaction_n);
@@ -318,7 +316,6 @@ async fn test_manager_send_transaction_basic() {
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
         assert_eq!(1, MockMiddleware::global().get_block_number_n);
-        assert_eq!(1, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
@@ -338,7 +335,6 @@ async fn test_manager_send_transaction_basic() {
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
         assert_eq!(1, MockMiddleware::global().get_block_number_n);
-        assert_eq!(1, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
@@ -358,7 +354,6 @@ async fn test_manager_send_transaction_basic() {
 
         assert_eq!(0, MockMiddleware::global().estimate_eip1559_fees_n);
         assert_eq!(4, MockMiddleware::global().get_block_number_n);
-        assert_eq!(1, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
@@ -377,7 +372,6 @@ async fn test_manager_send_transaction_basic() {
         assert_ok!(result);
 
         assert_eq!(10, MockMiddleware::global().get_block_number_n);
-        assert_eq!(1, MockMiddleware::global().get_block_n);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n);
@@ -393,19 +387,6 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 
     // "Middleware::estimate_eip1559_fees" is being tested in the
     // test_manager_send_transaction_basic_gas_oracle_errors function bellow.
-
-    // When "Middleware::get_block" fails.
-    {
-        let result = run_send_transaction(0, |mut middleware, gas_oracle, db| {
-            middleware.get_block = None;
-            (middleware, gas_oracle, db)
-        })
-        .await;
-        let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::GetBlock);
-        assert_err!(result, expected_err);
-        assert_eq!(1, MockMiddleware::global().get_block_n)
-    }
 
     // When "Middleware::get_transaction_count" fails.
     {
@@ -589,7 +570,7 @@ async fn setup_manager(
     db.get_state_output = Some(None);
     let result = Manager::new(
         middleware,
-        gas_oracle,
+        Some(gas_oracle),
         db,
         U64::from(1), // chain id
         Configuration {
@@ -607,7 +588,6 @@ async fn setup_manager(
 
 fn setup_middleware(mut middleware: MockMiddleware) -> MockMiddleware {
     middleware.estimate_gas = Some(U256::from(21000));
-    middleware.get_block = Some(());
     middleware.get_block_number = vec![1];
     middleware.get_transaction_count = Some(());
     middleware.get_transaction_receipt = vec![true];
@@ -623,7 +603,8 @@ async fn run_send_transaction(
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);
     gas_oracle.gas_info_output = Some(GasInfo {
-        gas_price: U256::from_dec_str("3000000000000").unwrap(),
+        max_fee: U256::from_dec_str("3000000000000").unwrap(),
+        max_priority_fee: Some(U256::from_dec_str("3000000000000").unwrap()),
         mining_time: Some(Duration::ZERO),
         block_time: Some(Duration::ZERO),
     });
