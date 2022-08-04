@@ -257,8 +257,8 @@ async fn test_manager_new() {
         assert_eq!(transaction_receipt, None);
     }
 
-    // Trying to instantiate new transaction manager without being able to check if there is a
-    // transaction pending.
+    // Trying to instantiate new transaction manager without being able to check if
+    // there is a transaction pending.
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = None;
@@ -309,8 +309,8 @@ async fn test_manager_new() {
         assert!(transaction_receipt.is_some());
     };
 
-    // Trying to instantiate a new transaction manager that has one pending transaction without
-    // being able to clear the state after the confirmation.
+    // Trying to instantiate a new transaction manager that has one pending
+    // transaction without being able to clear the state after the confirmation.
     // The pending transaction's hash is transaction_hash[0].
     {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();

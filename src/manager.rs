@@ -39,10 +39,12 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 
 #[derive(Debug)]
 pub struct Configuration<T: Time> {
-    /// Time the transaction manager will wait to check whether a transaction was mined by a block.
+    /// Time the transaction manager will wait to check whether a transaction
+    /// was mined by a block.
     pub transaction_mining_time: Duration,
 
-    /// Time the transaction manager will wait to check whether a block was mined.
+    /// Time the transaction manager will wait to check whether a block was
+    /// mined.
     pub block_time: Duration,
 
     /// Dependency that handles process sleeping and calculating elapsed time.
@@ -75,9 +77,9 @@ where
     DB: Send + Sync,
     T: Send + Sync,
 {
-    /// Sends and confirms any pending transaction persisted in the database before returning an
-    /// instance of the transaction manager. In case a pending transaction was mined, it's receipt
-    /// is also returned.
+    /// Sends and confirms any pending transaction persisted in the database
+    /// before returning an instance of the transaction manager. In case a
+    /// pending transaction was mined, it's receipt is also returned.
     #[tracing::instrument(level = "trace")]
     pub async fn new(
         provider: M,
@@ -309,7 +311,8 @@ where
         }
     }
 
-    /// Retrieves the max fee and max priority fee from the provider and packs it inside GasInfo.
+    /// Retrieves the max fee and max priority fee from the provider and packs
+    /// it inside GasInfo.
     async fn provider_gas_info(&self) -> Result<GasInfo, M::Error> {
         let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
         Ok(GasInfo {
@@ -320,7 +323,8 @@ where
         })
     }
 
-    /// Retrieves the gas info from the gas oracle if there is one, or from the provider otherwise.
+    /// Retrieves the gas info from the gas oracle if there is one, or from the
+    /// provider otherwise.
     #[tracing::instrument(level = "trace")]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
         match &self.gas_oracle {
@@ -337,8 +341,8 @@ where
         }
     }
 
-    /// Calculates the max priority fee using the max fee and the base fee (retrieved using the
-    /// provider).
+    /// Calculates the max priority fee using the max fee and the base fee
+    /// (retrieved using the provider).
     #[tracing::instrument(level = "trace")]
     async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
         let base_fee = self
