@@ -1,4 +1,6 @@
 use ethers::middleware::signer::SignerMiddleware;
+use ethers::prelude::k256::ecdsa::SigningKey;
+use ethers::prelude::Wallet;
 use ethers::providers::{Http, Provider};
 use ethers::signers::LocalWallet;
 use ethers::signers::Signer;
@@ -42,48 +44,54 @@ macro_rules! assert_err(
     };
 );
 
-/// This test takes around 90s to finish.
-#[tokio::test]
-#[serial]
-async fn test_manager_with_geth() {
-    setup_tracing();
+const GETH_PORT: u16 = 8545;
+const GETH_BLOCK_TIME: u16 = 12;
+const GETH_CHAIN_ID: u64 = 1337;
+const PRIVATE_KEY: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f";
+const FUNDS: u64 = 100;
 
-    // Geth setup.
-    let chain_id = 1337u64;
-    let private_key = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_owned();
-    let geth = GethNode::start(8545, 12);
-    let account1: String = geth.new_account_with_private_key(&private_key);
-    let account2: String = geth.new_account();
-    const INITIAL_FUNDS: u64 = 100;
-    geth.give_funds(&account1, INITIAL_FUNDS);
+/// Starts the geth node and creates two accounts.
+/// Gives FUNDS to the first account.
+/// Instantiates the transaction manager.
+async fn geth_setup() -> (
+    GethNode,
+    String,
+    String,
+    Manager<
+        SignerMiddleware<Provider<Http>, Wallet<SigningKey>>,
+        ETHGasStationOracle,
+        FileSystemDatabase,
+        DefaultTime,
+    >,
+) {
+    // Starting the geth node and creating two accounts.
+    let geth = GethNode::start(GETH_PORT, GETH_BLOCK_TIME);
+    let account1 = geth.new_account_with_private_key(PRIVATE_KEY);
+    let account2 = geth.new_account();
 
-    // Waiting for the funds to be credited.
-    let account2_balance = geth.check_balance_in_ethers(&account2);
-    assert!(account2_balance == 0);
-    loop {
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        if account1_balance == 100 {
-            break;
-        } else {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
+    // Giving funds and checking account balances.
+    geth.give_funds(&account1, FUNDS).await;
+    assert_eq!(FUNDS, geth.check_balance_in_ethers(&account1));
+    assert_eq!(0, geth.check_balance_in_ethers(&account2));
 
-    // Instantiating the manager.
     let manager = {
-        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
-        let signer: LocalWallet = private_key.parse().unwrap();
-        let signer = signer.with_chain_id(chain_id);
-        let provider = SignerMiddleware::new(provider, signer);
+        let signer = PRIVATE_KEY
+            .parse::<LocalWallet>()
+            .unwrap()
+            .with_chain_id(GETH_CHAIN_ID);
+        let provider = SignerMiddleware::new(
+            Provider::<Http>::try_from(geth.url.clone()).unwrap(),
+            signer,
+        );
         let gas_oracle = ETHGasStationOracle::new("api key".to_string());
         let database_path = "./test_database.json";
         let _ = remove_file(database_path);
         let database = FileSystemDatabase::new(database_path.to_string());
-        let result = Manager::new(
+        let manager = Manager::new(
             provider,
             Some(gas_oracle),
             database,
-            chain_id.into(),
+            GETH_CHAIN_ID.into(),
             Configuration {
                 transaction_mining_time: Duration::from_secs(1),
                 block_time: Duration::from_secs(1),
@@ -91,10 +99,20 @@ async fn test_manager_with_geth() {
             },
         )
         .await;
-        assert_ok!(result);
-        let (manager, _) = result.unwrap();
-        manager
+        assert_ok!(manager);
+        manager.unwrap().0
     };
+
+    (geth, account1, account2, manager)
+}
+
+/// This test takes around 90s to finish.
+#[tokio::test]
+#[serial]
+async fn test_manager_with_geth() {
+    setup_tracing();
+
+    let (geth, account1, account2, manager) = geth_setup().await;
 
     // Sending the first transaction.
     let amount1 = 10u64; // in ethers
@@ -113,7 +131,7 @@ async fn test_manager_with_geth() {
         assert_ok!(result);
         let (manager, _) = result.unwrap();
         let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == INITIAL_FUNDS - amount1 - 1);
+        assert!(account1_balance == FUNDS - amount1 - 1);
         let account2_balance = geth.check_balance_in_ethers(&account2);
         assert!(account2_balance == amount1);
         manager
@@ -136,7 +154,7 @@ async fn test_manager_with_geth() {
         assert_ok!(result);
         let (_, _) = result.unwrap();
         let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == INITIAL_FUNDS - amount1 - amount2 - 1);
+        assert!(account1_balance == FUNDS - amount1 - amount2 - 1);
         let account2_balance = geth.check_balance_in_ethers(&account2);
         assert!(account2_balance == amount1 + amount2);
     }
@@ -150,54 +168,7 @@ ethers::contract::abigen!(TestContract, "./tests/contract.abi");
 async fn test_manager_with_geth_smart_contract() {
     setup_tracing();
 
-    // Geth setup.
-    let chain_id = 1337u64;
-    let private_key =
-        "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_string();
-    let geth = GethNode::start(8545, 12);
-    let account1: String = geth.new_account_with_private_key(&private_key);
-    let account2: String = geth.new_account();
-    const INITIAL_FUNDS: u64 = 100;
-    geth.give_funds(&account1, INITIAL_FUNDS);
-
-    // Waiting for the funds to be credited.
-    let account2_balance = geth.check_balance_in_ethers(&account2);
-    assert!(account2_balance == 0);
-    loop {
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        if account1_balance == 100 {
-            break;
-        } else {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
-
-    // Instantiating the manager.
-    let manager = {
-        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
-        let signer: LocalWallet = private_key.parse().unwrap();
-        let signer = signer.with_chain_id(chain_id);
-        let provider = SignerMiddleware::new(provider, signer);
-        let gas_oracle = ETHGasStationOracle::new("api key".to_string());
-        let database_path = "./test_database.json";
-        let _ = remove_file(database_path);
-        let database = FileSystemDatabase::new(database_path.to_string());
-        let result = Manager::new(
-            provider,
-            Some(gas_oracle),
-            database,
-            chain_id.into(),
-            Configuration {
-                transaction_mining_time: Duration::from_secs(1),
-                block_time: Duration::from_secs(1),
-                time: DefaultTime,
-            },
-        )
-        .await;
-        assert_ok!(result);
-        let (manager, _) = result.unwrap();
-        manager
-    };
+    let (geth, account1, _, manager) = geth_setup().await;
 
     // Deploying the smart contract.
     let (contract_address, contract) = {
@@ -207,11 +178,14 @@ async fn test_manager_with_geth_smart_contract() {
             .unwrap();
         let contract = compiled.get("./tests/contract.sol", "Contract").unwrap();
 
-        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
-        let signer: LocalWallet = private_key.parse().unwrap();
-        let signer = signer.with_chain_id(chain_id);
-        let provider = SignerMiddleware::new(provider, signer);
-        let provider = Arc::new(provider);
+        let signer = PRIVATE_KEY
+            .parse::<LocalWallet>()
+            .unwrap()
+            .with_chain_id(GETH_CHAIN_ID);
+        let provider = Arc::new(SignerMiddleware::new(
+            Provider::<Http>::try_from(geth.url.clone()).unwrap(),
+            signer,
+        ));
 
         let contract = {
             let factory = ethers::prelude::ContractFactory::new(
@@ -251,8 +225,6 @@ async fn test_manager_with_geth_smart_contract() {
     };
 
     // TODO: check if the contract was updated.
-
-    todo!()
 }
 
 #[tokio::test]

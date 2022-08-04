@@ -110,7 +110,7 @@ impl GethNode {
         n as u64
     }
 
-    pub fn give_funds(&self, to: &str, amount_in_ethers: u64) {
+    pub async fn give_funds(&self, to: &str, amount_in_ethers: u64) {
         let mut instruction: String = "personal.sendTransaction(".to_owned();
         instruction.push_str("{from: eth.coinbase, to: \"");
         instruction.push_str(to);
@@ -121,6 +121,15 @@ impl GethNode {
         // println!("{:?}", instruction);
         let output = self.new_command(&instruction);
         let _ = std::str::from_utf8(&output).unwrap();
+
+        // Waiting for the funds to be credited.
+        loop {
+            if self.check_balance_in_ethers(to) == amount_in_ethers {
+                break;
+            } else {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
     }
 
     /// Auxiliary.
