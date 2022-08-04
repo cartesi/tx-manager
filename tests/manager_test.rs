@@ -5,6 +5,7 @@ use ethers::signers::Signer;
 use ethers::types::{TransactionReceipt, U256, U64};
 use serial_test::serial;
 use std::fs::remove_file;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tx_manager::database::FileSystemDatabase;
@@ -141,6 +142,9 @@ async fn test_manager_with_geth() {
     }
 }
 
+// TODO
+ethers::contract::abigen!(TestContract, "./tests/contract.abi");
+
 #[tokio::test]
 #[serial]
 async fn test_manager_with_geth_smart_contract() {
@@ -148,7 +152,8 @@ async fn test_manager_with_geth_smart_contract() {
 
     // Geth setup.
     let chain_id = 1337u64;
-    let private_key = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_owned();
+    let private_key =
+        "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f".to_string();
     let geth = GethNode::start(8545, 12);
     let account1: String = geth.new_account_with_private_key(&private_key);
     let account2: String = geth.new_account();
@@ -194,37 +199,46 @@ async fn test_manager_with_geth_smart_contract() {
         manager
     };
 
-    // Sending the first transaction.
-    let amount1 = 10u64; // in ethers
-    let manager = {
-        let transaction = Transaction {
-            from: account1.parse().unwrap(),
-            to: account2.parse().unwrap(),
-            value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
-            call_data: None,
+    // Deploying the smart contract.
+    let (contract_address, contract) = {
+        const CONTRACT_PATH: &str = "./tests/contract.sol";
+        let compiled = ethers::solc::Solc::default()
+            .compile_source(CONTRACT_PATH)
+            .unwrap();
+        let contract = compiled.get("./tests/contract.sol", "Contract").unwrap();
+
+        let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
+        let signer: LocalWallet = private_key.parse().unwrap();
+        let signer = signer.with_chain_id(chain_id);
+        let provider = SignerMiddleware::new(provider, signer);
+        let provider = Arc::new(provider);
+
+        let contract = {
+            let factory = ethers::prelude::ContractFactory::new(
+                contract.abi.unwrap().clone(),
+                contract.bytecode().unwrap().clone(),
+                Arc::clone(&provider),
+            );
+            factory.deploy(()).unwrap().send().await.unwrap()
         };
-
-        let result = manager
-            .send_transaction(transaction, 3, Priority::Normal)
-            .await;
-
-        assert_ok!(result);
-        let (manager, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == INITIAL_FUNDS - amount1 - 1);
-        let account2_balance = geth.check_balance_in_ethers(&account2);
-        assert!(account2_balance == amount1);
-        manager
+        let contract_address = contract.address();
+        println!("contract_address: {}", contract_address);
+        (
+            contract_address,
+            TestContract::new(contract_address, provider),
+        )
     };
 
-    // Sending the second transaction
-    let amount2 = 25u64; // in ethers
+    // Sending the first transaction.
     {
+        let from = account1.parse().unwrap();
+        let data = contract.increment().tx.data().unwrap().clone();
+        println!("data: {}", data);
         let transaction = Transaction {
-            from: account1.parse().unwrap(),
-            to: account2.parse().unwrap(),
-            value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
-            call_data: None,
+            from,
+            to: contract_address,
+            value: Value::Nothing,
+            call_data: Some(data),
         };
 
         let result = manager
@@ -232,12 +246,13 @@ async fn test_manager_with_geth_smart_contract() {
             .await;
 
         assert_ok!(result);
-        let (_, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == INITIAL_FUNDS - amount1 - amount2 - 1);
-        let account2_balance = geth.check_balance_in_ethers(&account2);
-        assert!(account2_balance == amount1 + amount2);
-    }
+        let (manager, _) = result.unwrap();
+        manager
+    };
+
+    // TODO: check if the contract was updated.
+
+    todo!()
 }
 
 #[tokio::test]
