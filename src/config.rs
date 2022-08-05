@@ -1,4 +1,4 @@
-use ethers::types::Address;
+use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, WalletError};
 use snafu::{ResultExt, Snafu};
 use std::fs;
 use structopt::StructOpt;
@@ -18,9 +18,9 @@ pub struct TxEnvCLIConfig {
     #[structopt(long, env)]
     pub tx_mnemonic_file: Option<String>,
 
-    /// Signer public address
+    /// Mnemonic account index
     #[structopt(long, env)]
-    pub tx_sender: Option<Address>,
+    pub tx_mnemonic_account_index: Option<u32>,
 
     /// Chain ID
     #[structopt(long, env)]
@@ -43,9 +43,8 @@ pub struct TxEnvCLIConfig {
 pub struct TxManagerConfig {
     pub default_confirmations: usize,
     pub provider_http_endpoint: String,
-    pub mnemonic: String,
+    pub wallet: LocalWallet,
     pub chain_id: u64,
-    pub sender: Address,
     pub database_path: String,
     pub gas_oracle_api_key: String,
 }
@@ -55,9 +54,8 @@ impl std::fmt::Debug for TxManagerConfig {
         f.debug_struct("TxManagerConfig")
             .field("default_confirmations", &self.default_confirmations)
             .field("provider_http_endpoint", &self.provider_http_endpoint)
-            .field("mnemonic", &"<REDACTED>")
             .field("chain_id", &self.chain_id)
-            .field("sender", &self.sender)
+            .field("wallet_address", &self.wallet.address())
             .field("database_path", &self.database_path)
             .field("gas_oracle_api_key", &self.gas_oracle_api_key)
             .finish()
@@ -66,6 +64,9 @@ impl std::fmt::Debug for TxManagerConfig {
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Configuration missing chain_id"))]
+    MissingChainId {},
+
     #[snafu(display("Configuration missing mnemonic"))]
     MissingMnemonic {},
 
@@ -75,15 +76,16 @@ pub enum Error {
         source: std::io::Error,
     },
 
-    #[snafu(display("Configuration missing sender address"))]
-    MissingSender {},
+    #[snafu(display("Mnemonic index malformed: {:?}", source))]
+    MnemonicIndexMalformed { source: WalletError },
 
-    #[snafu(display("Configuration missing chain_id"))]
-    MissingChainId {},
+    #[snafu(display("Mnemonic malformed: {:?}", source))]
+    MnemonicMalformed { source: WalletError },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+const DEFAULT_MNEMONIC_ACCOUNT_INDEX: u32 = 0;
 const DEFAULT_DEFAULT_CONFIRMATIONS: usize = 7;
 const DEFAULT_HTTP_ENDPOINT: &str = "http://localhost:8545";
 const DEFAULT_DATABASE_PATH: &str = "./default_tx_database";
@@ -104,29 +106,38 @@ impl TxManagerConfig {
             .tx_provider_http_endpoint
             .unwrap_or_else(|| DEFAULT_HTTP_ENDPOINT.to_string());
 
-        let mnemonic: String = if let Some(m) = env_cli_config.tx_mnemonic {
-            m
-        } else {
-            let path = env_cli_config
-                .tx_mnemonic_file
-                .ok_or(snafu::NoneError)
-                .context(MissingMnemonicSnafu)?;
-
-            let contents =
-                fs::read_to_string(path.clone()).context(MnemonicFileReadSnafu { path })?;
-
-            contents.trim().to_string()
-        };
-
         let chain_id = env_cli_config
             .tx_chain_id
             .ok_or(snafu::NoneError)
             .context(MissingChainIdSnafu)?;
 
-        let sender = env_cli_config
-            .tx_sender
-            .ok_or(snafu::NoneError)
-            .context(MissingSenderSnafu)?;
+        let wallet = {
+            let mnemonic: String = if let Some(m) = env_cli_config.tx_mnemonic {
+                m
+            } else {
+                let path = env_cli_config
+                    .tx_mnemonic_file
+                    .ok_or(snafu::NoneError)
+                    .context(MissingMnemonicSnafu)?;
+
+                let contents =
+                    fs::read_to_string(path.clone()).context(MnemonicFileReadSnafu { path })?;
+
+                contents.trim().to_string()
+            };
+
+            let index = env_cli_config
+                .tx_mnemonic_account_index
+                .unwrap_or(DEFAULT_MNEMONIC_ACCOUNT_INDEX);
+
+            MnemonicBuilder::<English>::default()
+                .phrase(mnemonic.as_str())
+                .index(index)
+                .context(MnemonicMalformedSnafu)?
+                .build()
+                .context(MnemonicMalformedSnafu)?
+                .with_chain_id(chain_id)
+        };
 
         let database_path = env_cli_config
             .tx_database_path
@@ -139,9 +150,8 @@ impl TxManagerConfig {
         Ok(Self {
             default_confirmations,
             provider_http_endpoint,
-            mnemonic,
+            wallet,
             chain_id,
-            sender,
             database_path,
             gas_oracle_api_key,
         })
