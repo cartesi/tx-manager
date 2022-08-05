@@ -92,12 +92,16 @@ impl SubmittedTxs {
         }
     }
 
-    pub fn add_tx_hash(&mut self, tx_hash: H256) {
-        self.txs_hashes.push(tx_hash);
+    pub fn contains(&mut self, hash: H256) -> bool {
+        self.txs_hashes.contains(&hash)
     }
 
-    pub fn tx_count(&self) {
-        self.txs_hashes.len();
+    pub fn add(&mut self, hash: H256) {
+        self.txs_hashes.push(hash);
+    }
+
+    pub fn len(&self) -> usize {
+        self.txs_hashes.len()
     }
 }
 

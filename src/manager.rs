@@ -7,6 +7,7 @@ use ethers::{
     },
 };
 use std::default::Default;
+use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::{info, trace, warn};
 
@@ -39,16 +40,36 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 
 #[derive(Debug)]
 pub struct Configuration<T: Time> {
-    /// Time the transaction manager will wait to check whether a transaction
-    /// was mined by a block.
+    /// Time it takes for a transaction to be mined by a block after being sent
+    /// to the transaction pool.
     pub transaction_mining_time: Duration,
 
-    /// Time the transaction manager will wait to check whether a block was
-    /// mined.
+    /// Time it takes for a block to be mined. The transaction manager uses this
+    /// value as the polling interval when checking whether a block was mined.
     pub block_time: Duration,
 
     /// Dependency that handles process sleeping and calculating elapsed time.
     pub time: T,
+}
+
+impl<T: Time> Configuration<T> {
+    pub fn set_transaction_mining_time(
+        mut self,
+        transaction_mining_time: Duration,
+    ) -> Configuration<T> {
+        self.transaction_mining_time = transaction_mining_time;
+        self
+    }
+
+    pub fn set_block_time(mut self, block_time: Duration) -> Configuration<T> {
+        self.block_time = block_time;
+        self
+    }
+
+    pub fn set_time(mut self, time: T) -> Configuration<T> {
+        self.time = time;
+        self
+    }
 }
 
 impl Default for Configuration<DefaultTime> {
@@ -70,6 +91,7 @@ pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     configuration: Configuration<T>,
 }
 
+/// Public functions.
 impl<M: Middleware, GO: GasOracle, DB: Database, T: Time> Manager<M, GO, DB, T>
 where
     M: Send + Sync,
@@ -80,7 +102,10 @@ where
     /// Sends and confirms any pending transaction persisted in the database
     /// before returning an instance of the transaction manager. In case a
     /// pending transaction was mined, it's receipt is also returned.
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(
+        level = "trace",
+        skip(provider, gas_oracle, db, chain_id, configuration)
+    )]
     pub async fn new(
         provider: M,
         gas_oracle: Option<GO>,
@@ -96,12 +121,15 @@ where
             configuration,
         };
 
+        trace!("Instantiating a new transaction manager => {:#?}", manager);
+
         let transaction_receipt = match manager.db.get_state().await.map_err(Error::Database)? {
             Some(mut state) => {
+                warn!("Dealing with previous state => {:#?}", state);
                 let wait_time = manager.wait_time(state.tx_data.confirmations, None);
 
                 let transaction_receipt = manager
-                    .confirm_transaction(&mut state, None, wait_time, false)
+                    .confirm_transaction(&mut state, wait_time, false)
                     .await?;
 
                 manager.db.clear_state().await.map_err(Error::Database)?;
@@ -116,13 +144,15 @@ where
     }
 
     /// Sends a transaction and returns the receipt.
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(self, transaction, confirmations, priority))]
     pub async fn send_transaction(
         mut self,
         transaction: Transaction,
         confirmations: usize,
         priority: Priority,
     ) -> Result<(Self, TransactionReceipt), Error<M, GO, DB>> {
+        trace!("Sending the transaction.");
+
         let mut state = {
             let nonce = self.get_nonce(transaction.from).await?;
 
@@ -141,7 +171,7 @@ where
             }
         };
 
-        let receipt = self.send_then_confirm_transaction(&mut state, None).await?;
+        let receipt = self.send_then_confirm_transaction(&mut state).await?;
 
         info!(
             "Transaction with nonce {:?} was sent. Transaction hash = {:?}.",
@@ -163,11 +193,10 @@ where
     T: Send + Sync,
 {
     #[async_recursion]
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(self, state))]
     async fn send_then_confirm_transaction(
         &mut self,
         state: &mut PersistentState,
-        polling_time: Option<Duration>,
     ) -> Result<TransactionReceipt, Error<M, GO, DB>> {
         trace!("(Re)sending the transaction.");
 
@@ -210,22 +239,42 @@ where
             // Calculating the transaction hash.
             let (transaction_hash, raw_transaction) = self.raw_transaction(&request).await?;
 
+            // Checking for the "already known" error.
+            if state.submitted_txs.contains(transaction_hash) {
+                warn!(
+                    "Tried to resend an exact duplicate of a previous transaction \
+                     (transaction hash = {:?}).",
+                    transaction_hash
+                );
+                return self.confirm_transaction(state, wait_time, true).await;
+            }
+
             // Storing information about the pending transaction in the database.
-            state.submitted_txs.add_tx_hash(transaction_hash);
+            state.submitted_txs.add(transaction_hash);
             self.db.set_state(state).await.map_err(Error::Database)?;
 
-            trace!(
-                "The manager has {:?} pending transactions.",
-                state.submitted_txs.tx_count()
-            );
-
-            // FIXME: ignore the replacement transaction underpriced error?
             // Sending the transaction.
-            let pending_transaction = self
-                .provider
-                .send_raw_transaction(raw_transaction)
-                .await
-                .map_err(Error::Middleware)?;
+            let pending_transaction = self.provider.send_raw_transaction(raw_transaction).await;
+            let pending_transaction = match pending_transaction {
+                Ok(pending_transaction) => pending_transaction,
+                Err(err) => {
+                    trace!("error! {:?}", err);
+                    if is_error(&err, "transaction underpriced") {
+                        todo!();
+                    } else {
+                        assert!(
+                            !is_error(&err, "already know"),
+                            "the <already know> error should be unreachable"
+                        );
+                        return Err(Error::Middleware(err));
+                    }
+                }
+            };
+
+            trace!(
+                "The manager has submitted {:?} transaction(s) to the transaction pool.",
+                state.submitted_txs.len()
+            );
 
             assert_eq!(
                 transaction_hash,
@@ -235,15 +284,13 @@ where
         };
 
         // Confirming the transaction.
-        self.confirm_transaction(state, polling_time, wait_time, true)
-            .await
+        self.confirm_transaction(state, wait_time, true).await
     }
 
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(self, state, wait_time, sleep_first))]
     async fn confirm_transaction(
         &mut self,
         state: &mut PersistentState,
-        polling_time: Option<Duration>,
         wait_time: Duration,
         sleep_first: bool,
     ) -> Result<TransactionReceipt, Error<M, GO, DB>> {
@@ -253,11 +300,8 @@ where
         );
 
         let start_time = Instant::now();
-
-        let polling_time = polling_time.unwrap_or(self.configuration.transaction_mining_time);
-
         let mut sleep_time = if sleep_first {
-            polling_time
+            self.configuration.block_time
         } else {
             Duration::ZERO
         };
@@ -286,7 +330,7 @@ where
                     assert!(current_block >= transaction_block);
                     let mut delta = (current_block - transaction_block) as i32;
                     delta = (state.tx_data.confirmations as i32) - delta;
-                    trace!("{:?} more confirmations required.", delta);
+                    trace!("{:?} more confirmation(s) required.", delta);
                     if delta <= 0 {
                         return Ok(receipt);
                     }
@@ -299,13 +343,15 @@ where
                     // Have I waited too much?
                     let elapsed_time = self.configuration.time.elapsed(start_time);
                     if elapsed_time > wait_time {
-                        trace!("I have waited too much!");
-                        return self
-                            .send_then_confirm_transaction(state, Some(polling_time))
-                            .await;
+                        trace!(
+                            "I have waited too much! (elapsed = {:?}, max = {:?})",
+                            elapsed_time,
+                            wait_time
+                        );
+                        return self.send_then_confirm_transaction(state).await;
                     }
 
-                    sleep_time = polling_time;
+                    sleep_time = self.configuration.block_time;
                 }
             }
         }
@@ -325,7 +371,7 @@ where
 
     /// Retrieves the gas info from the gas oracle if there is one, or from the
     /// provider otherwise.
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(self, priority))]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
         match &self.gas_oracle {
             Some(gas_oracle) => match gas_oracle.gas_info(priority).await {
@@ -343,7 +389,6 @@ where
 
     /// Calculates the max priority fee using the max fee and the base fee
     /// (retrieved using the provider).
-    #[tracing::instrument(level = "trace")]
     async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
         let base_fee = self
             .provider
@@ -364,7 +409,6 @@ where
         Ok(max_fee - base_fee)
     }
 
-    #[tracing::instrument(level = "trace")]
     async fn get_mined_transaction(
         &self,
         state: &mut PersistentState,
@@ -382,7 +426,6 @@ where
         Ok(None)
     }
 
-    #[tracing::instrument(level = "trace")]
     async fn get_nonce(&self, address: Address) -> Result<U256, Error<M, GO, DB>> {
         self.provider
             .get_transaction_count(
@@ -394,7 +437,6 @@ where
     }
 
     /// Returns the transaction hash and the raw transaction.
-    #[tracing::instrument(level = "trace")]
     async fn raw_transaction(
         &self,
         typed_transaction: &TypedTransaction,
@@ -413,7 +455,6 @@ where
         Ok((hash, rlp_data))
     }
 
-    #[tracing::instrument(level = "trace")]
     fn wait_time(
         &self,
         confirmations: usize,
@@ -421,7 +462,18 @@ where
     ) -> Duration {
         let transaction_mining_time =
             transaction_mining_time.unwrap_or(self.configuration.transaction_mining_time);
-        let confirmation_time = (confirmations as u32) * self.configuration.block_time;
+        let confirmation_time = if confirmations > 0 {
+            confirmations as u32
+        } else {
+            1
+        } * self.configuration.block_time;
         transaction_mining_time + confirmation_time
     }
+}
+
+fn is_error<E>(err: &E, s: &str) -> bool
+where
+    E: Debug,
+{
+    format!("{:?}", err).contains(s)
 }

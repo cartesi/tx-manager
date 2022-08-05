@@ -9,6 +9,7 @@ use serial_test::serial;
 use std::fs::remove_file;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing_subscriber::filter::EnvFilter;
 
 use tx_manager::database::FileSystemDatabase;
 use tx_manager::gas_oracle::{ETHGasStationOracle, GasInfo};
@@ -50,10 +51,16 @@ const GETH_CHAIN_ID: u64 = 1337;
 const PRIVATE_KEY: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f";
 const FUNDS: u64 = 100;
 
+ethers::contract::abigen!(TestContract, "./tests/contract.abi");
+
+/// Auxiliary setup function.
 /// Starts the geth node and creates two accounts.
-/// Gives FUNDS to the first account.
-/// Instantiates the transaction manager.
-async fn geth_setup() -> (
+/// Then, gives FUNDS to the first account.
+/// Finally, instantiates the transaction manager.
+async fn geth_setup(
+    gas_oracle: Option<ETHGasStationOracle>,
+    configuration: Configuration<DefaultTime>,
+) -> (
     GethNode,
     String,
     String,
@@ -74,6 +81,7 @@ async fn geth_setup() -> (
     assert_eq!(FUNDS, geth.check_balance_in_ethers(&account1));
     assert_eq!(0, geth.check_balance_in_ethers(&account2));
 
+    // Instantiating the transaction manager.
     let manager = {
         let signer = PRIVATE_KEY
             .parse::<LocalWallet>()
@@ -83,20 +91,14 @@ async fn geth_setup() -> (
             Provider::<Http>::try_from(geth.url.clone()).unwrap(),
             signer,
         );
-        let gas_oracle = ETHGasStationOracle::new("api key".to_string());
         let database_path = "./test_database.json";
-        let _ = remove_file(database_path);
-        let database = FileSystemDatabase::new(database_path.to_string());
+        remove_file(database_path).unwrap_or(());
         let manager = Manager::new(
             provider,
-            Some(gas_oracle),
-            database,
+            gas_oracle,
+            FileSystemDatabase::new(database_path.to_string()),
             GETH_CHAIN_ID.into(),
-            Configuration {
-                transaction_mining_time: Duration::from_secs(1),
-                block_time: Duration::from_secs(1),
-                time: DefaultTime,
-            },
+            configuration,
         )
         .await;
         assert_ok!(manager);
@@ -112,7 +114,9 @@ async fn geth_setup() -> (
 async fn test_manager_with_geth() {
     setup_tracing();
 
-    let (geth, account1, account2, manager) = geth_setup().await;
+    let gas_oracle = ETHGasStationOracle::new("api key".to_string());
+    let configuration = Configuration::default();
+    let (geth, account1, account2, manager) = geth_setup(Some(gas_oracle), configuration).await;
 
     // Sending the first transaction.
     let amount1 = 10u64; // in ethers
@@ -160,15 +164,42 @@ async fn test_manager_with_geth() {
     }
 }
 
-// TODO
-ethers::contract::abigen!(TestContract, "./tests/contract.abi");
+/// If you send a transaction that is exactly equal (same hash) to a transaction
+/// that is already in the transaction pool, then you will receive a <code:
+/// -32000, message: "already known"> error. This test checks that the
+/// transaction manager ignores that error.
+#[tokio::test]
+#[serial]
+async fn test_manager_already_known_error() {
+    setup_tracing();
+
+    // Setup.
+    let configuration = Configuration::default()
+        .set_transaction_mining_time(Duration::ZERO)
+        .set_block_time(Duration::from_secs(GETH_BLOCK_TIME as u64 / 4));
+    let (_geth, account1, account2, manager) = geth_setup(None, configuration).await;
+
+    // Sending the transaction.
+    let transaction = Transaction {
+        from: account1.parse().unwrap(),
+        to: account2.parse().unwrap(),
+        value: Value::Number(ethers::utils::parse_ether(10).unwrap()),
+        call_data: None,
+    };
+
+    let result = manager
+        .send_transaction(transaction, 0, Priority::Normal)
+        .await;
+    assert!(result.is_ok());
+}
 
 #[tokio::test]
 #[serial]
 async fn test_manager_with_geth_smart_contract() {
     setup_tracing();
 
-    let (geth, account1, _, manager) = geth_setup().await;
+    let configuration = Configuration::default();
+    let (geth, account1, _, manager) = geth_setup(None, configuration).await;
 
     // Deploying the smart contract.
     let (contract_address, contract) = {
@@ -203,7 +234,8 @@ async fn test_manager_with_geth_smart_contract() {
         )
     };
 
-    // Sending the first transaction.
+    // Sending the transaction
+    // Calling the <increment> function from the smart contract.
     {
         let from = account1.parse().unwrap();
         let data = contract.increment().tx.data().unwrap().clone();
@@ -639,8 +671,9 @@ fn setup_tracing() {
         .with_source_location(false)
         .compact();
     let _ = tracing_subscriber::fmt()
-        // .with_max_level(tracing::Level::TRACE) // tracing
+        .with_max_level(tracing::Level::TRACE)
         .event_format(format)
+        .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 }
 
