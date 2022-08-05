@@ -103,6 +103,10 @@ impl SubmittedTxs {
     pub fn len(&self) -> usize {
         self.txs_hashes.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.txs_hashes.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

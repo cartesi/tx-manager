@@ -7,35 +7,35 @@ use structopt::StructOpt;
 #[structopt(name = "tx_config", about = "Configuration for transaction manager")]
 pub struct TxEnvCLIConfig {
     /// Blockchain provider http endpoint url
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_provider_http_endpoint: Option<String>,
 
     /// Signer mnemonic, overrides `tx_mnemonic_file`
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_mnemonic: Option<String>,
 
     /// Signer mnemonic file path
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_mnemonic_file: Option<String>,
 
     /// Signer public address
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_sender: Option<Address>,
 
     /// Chain ID
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_chain_id: Option<u64>,
 
     /// Path to tx manager database file
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_database_path: Option<String>,
 
     /// Ethereum gas station oracle api key
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_gas_oracle_api_key: Option<String>,
 
     /// Default confirmations
-    #[structopt(long)]
+    #[structopt(long, env)]
     pub tx_default_confirmations: Option<usize>,
 }
 
@@ -55,7 +55,7 @@ impl std::fmt::Debug for TxManagerConfig {
         f.debug_struct("TxManagerConfig")
             .field("default_confirmations", &self.default_confirmations)
             .field("provider_http_endpoint", &self.provider_http_endpoint)
-            .field("mnemonic", &"REDACTED")
+            .field("mnemonic", &"<REDACTED>")
             .field("chain_id", &self.chain_id)
             .field("sender", &self.sender)
             .field("database_path", &self.database_path)

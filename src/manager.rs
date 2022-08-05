@@ -6,10 +6,11 @@ use ethers::{
         Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256, U256, U64,
     },
 };
+
 use std::default::Default;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::database::Database;
 use crate::gas_oracle::{GasInfo, GasOracle};
@@ -102,10 +103,7 @@ where
     /// Sends and confirms any pending transaction persisted in the database
     /// before returning an instance of the transaction manager. In case a
     /// pending transaction was mined, it's receipt is also returned.
-    #[tracing::instrument(
-        level = "trace",
-        skip(provider, gas_oracle, db, chain_id, configuration)
-    )]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn new(
         provider: M,
         gas_oracle: Option<GO>,
@@ -144,7 +142,7 @@ where
     }
 
     /// Sends a transaction and returns the receipt.
-    #[tracing::instrument(level = "trace", skip(self, transaction, confirmations, priority))]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_transaction(
         mut self,
         transaction: Transaction,
@@ -193,7 +191,7 @@ where
     T: Send + Sync,
 {
     #[async_recursion]
-    #[tracing::instrument(level = "trace", skip(self, state))]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn send_then_confirm_transaction(
         &mut self,
         state: &mut PersistentState,
@@ -239,22 +237,20 @@ where
             // Calculating the transaction hash.
             let (transaction_hash, raw_transaction) = self.raw_transaction(&request).await?;
 
-            // Checking for the "already known" error.
-            if state.submitted_txs.contains(transaction_hash) {
-                warn!(
-                    "Tried to resend an exact duplicate of a previous transaction \
-                     (transaction hash = {:?}).",
-                    transaction_hash
-                );
-                return self.confirm_transaction(state, wait_time, true).await;
+            // Checking for the "already known" transactions.
+            if !state.submitted_txs.contains(transaction_hash) {
+                // Storing information about the pending transaction in the database.
+                state.submitted_txs.add(transaction_hash);
+                self.db.set_state(state).await.map_err(Error::Database)?;
             }
 
-            // Storing information about the pending transaction in the database.
-            state.submitted_txs.add(transaction_hash);
-            self.db.set_state(state).await.map_err(Error::Database)?;
-
             // Sending the transaction.
-            let result = self.provider.send_raw_transaction(raw_transaction).await;
+            let result = self
+                .provider
+                .send_raw_transaction(raw_transaction)
+                .await
+                .map_err(Error::Middleware);
+
             match result {
                 Ok(pending_transaction) => {
                     assert_eq!(
@@ -262,22 +258,26 @@ where
                         H256(*pending_transaction.as_fixed_bytes()),
                         "stored hash is different from the pending transaction's hash"
                     );
-                    trace!(
-                        "The manager has submitted {:?} transaction(s) to the transaction pool.",
+                    info!(
+                        "The manager has submitted transaction with hash {:?} \
+                        to the transaction pool, for a total of {:?} submitted \
+                        transaction(s).",
+                        transaction_hash,
                         state.submitted_txs.len()
                     );
                 }
                 Err(err) => {
                     if is_error(&err, "transaction underpriced") {
-                        assert!(state.submitted_txs.len() > 0);
+                        assert!(!state.submitted_txs.is_empty());
                         warn!("Tried to send an underpriced transaction.");
                         /* skips back to confirm_transaction */
+                    } else if is_error(&err, "already known") {
+                        assert!(!state.submitted_txs.is_empty());
+                        warn!("Tried to send an already known transaction.");
+                        /* skips back to confirm_transaction */
                     } else {
-                        assert!(
-                            !is_error(&err, "already know"),
-                            "the <already know> error should be unreachable"
-                        );
-                        return Err(Error::Middleware(err));
+                        error!("Error while submitting transaction: {:?}", err);
+                        return Err(err);
                     }
                 }
             };
@@ -287,7 +287,7 @@ where
         self.confirm_transaction(state, wait_time, true).await
     }
 
-    #[tracing::instrument(level = "trace", skip(self, state, wait_time, sleep_first))]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn confirm_transaction(
         &mut self,
         state: &mut PersistentState,
@@ -359,6 +359,7 @@ where
 
     /// Retrieves the max fee and max priority fee from the provider and packs
     /// it inside GasInfo.
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn provider_gas_info(&self) -> Result<GasInfo, M::Error> {
         let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
         Ok(GasInfo {
@@ -371,7 +372,7 @@ where
 
     /// Retrieves the gas info from the gas oracle if there is one, or from the
     /// provider otherwise.
-    #[tracing::instrument(level = "trace", skip(self, priority))]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
         match &self.gas_oracle {
             Some(gas_oracle) => match gas_oracle.gas_info(priority).await {
@@ -389,6 +390,7 @@ where
 
     /// Calculates the max priority fee using the max fee and the base fee
     /// (retrieved using the provider).
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
         let base_fee = self
             .provider
@@ -409,6 +411,7 @@ where
         Ok(max_fee - base_fee)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_mined_transaction(
         &self,
         state: &mut PersistentState,
@@ -426,6 +429,7 @@ where
         Ok(None)
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn get_nonce(&self, address: Address) -> Result<U256, Error<M, GO, DB>> {
         self.provider
             .get_transaction_count(
@@ -437,6 +441,7 @@ where
     }
 
     /// Returns the transaction hash and the raw transaction.
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn raw_transaction(
         &self,
         typed_transaction: &TypedTransaction,
@@ -455,6 +460,7 @@ where
         Ok((hash, rlp_data))
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     fn wait_time(
         &self,
         confirmations: usize,
