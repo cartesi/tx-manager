@@ -1,7 +1,7 @@
-pragma solidity ^0.8.15;
-pragma experimental ABIEncoderV2;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
 
-contract Contract {
+contract TestContract {
     uint256 public i;
 
     function alwaysRevert() public {

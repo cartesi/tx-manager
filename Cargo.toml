@@ -25,6 +25,7 @@ url = "2.2"
 
 [dev-dependencies]
 ethers = { version = "0.17", features = ["abigen"] }
+hex = "0.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serial_test = "0.8"
 matches = "0.1"

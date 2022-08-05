@@ -3470,6 +3470,7 @@ dependencies = [
  "async-recursion",
  "async-trait",
  "ethers",
+ "hex",
  "matches",
  "reqwest",
  "serde",

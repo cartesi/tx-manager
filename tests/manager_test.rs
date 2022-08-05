@@ -55,7 +55,7 @@ const PRIVATE_KEY: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7
 const FUNDS: u64 = 100;
 const ETH_GAS_STATION_API_KEY: &str = "api key";
 
-ethers::contract::abigen!(TestContract, "./tests/contract.abi");
+ethers::contract::abigen!(TestContract, "./tests/contracts/bin/TestContract.abi");
 
 /// Auxiliary setup function.
 /// Starts the geth node and creates two accounts.
@@ -238,12 +238,6 @@ async fn test_manager_with_geth_smart_contract() {
 
     // Deploying the smart contract.
     let (contract_address, contract) = {
-        const CONTRACT_PATH: &str = "./tests/contract.sol";
-        let compiled = ethers::solc::Solc::default()
-            .compile_source(CONTRACT_PATH)
-            .unwrap();
-        let contract = compiled.get("./tests/contract.sol", "Contract").unwrap();
-
         let signer = PRIVATE_KEY
             .parse::<LocalWallet>()
             .unwrap()
@@ -254,9 +248,13 @@ async fn test_manager_with_geth_smart_contract() {
         ));
 
         let contract = {
+            let bytecode = hex::decode(include_bytes!("contracts/bin/TestContract.bin"))
+                .unwrap()
+                .into();
+
             let factory = ethers::prelude::ContractFactory::new(
-                contract.abi.unwrap().clone(),
-                contract.bytecode().unwrap().clone(),
+                TESTCONTRACT_ABI.clone(),
+                bytecode,
                 Arc::clone(&provider),
             );
             factory.deploy(()).unwrap().send().await.unwrap()
