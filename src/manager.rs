@@ -254,13 +254,24 @@ where
             self.db.set_state(state).await.map_err(Error::Database)?;
 
             // Sending the transaction.
-            let pending_transaction = self.provider.send_raw_transaction(raw_transaction).await;
-            let pending_transaction = match pending_transaction {
-                Ok(pending_transaction) => pending_transaction,
+            let result = self.provider.send_raw_transaction(raw_transaction).await;
+            match result {
+                Ok(pending_transaction) => {
+                    assert_eq!(
+                        transaction_hash,
+                        H256(*pending_transaction.as_fixed_bytes()),
+                        "stored hash is different from the pending transaction's hash"
+                    );
+                    trace!(
+                        "The manager has submitted {:?} transaction(s) to the transaction pool.",
+                        state.submitted_txs.len()
+                    );
+                }
                 Err(err) => {
-                    trace!("error! {:?}", err);
                     if is_error(&err, "transaction underpriced") {
-                        todo!();
+                        assert!(state.submitted_txs.len() > 0);
+                        warn!("Tried to send an underpriced transaction.");
+                        /* skips back to confirm_transaction */
                     } else {
                         assert!(
                             !is_error(&err, "already know"),
@@ -270,17 +281,6 @@ where
                     }
                 }
             };
-
-            trace!(
-                "The manager has submitted {:?} transaction(s) to the transaction pool.",
-                state.submitted_txs.len()
-            );
-
-            assert_eq!(
-                transaction_hash,
-                H256(*pending_transaction.as_fixed_bytes()),
-                "stored hash is different from the pending transaction's hash"
-            );
         };
 
         // Confirming the transaction.
