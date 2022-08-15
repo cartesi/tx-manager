@@ -254,13 +254,14 @@ impl Global {
     }
 
     fn init(&mut self) {
-        self.nonce = 1;
+        self.nonce = 0;
         self.sent_transactions = Some(HashMap::new());
     }
 
     fn insert_transaction(&mut self, hash: TxHash, block_number: i32) {
         let map = self.sent_transactions.as_mut().unwrap();
         map.insert(hash, block_number);
+        self.nonce += 1;
     }
 
     fn sent_transactions(&self) -> HashMap<TxHash, i32> {

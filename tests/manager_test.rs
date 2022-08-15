@@ -345,6 +345,7 @@ async fn test_manager_new() {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
         middleware.get_block_number = vec![1];
         middleware.get_transaction_receipt = vec![true];
+        middleware.get_transaction_count = Some(());
         db.get_state_output = Some(Some(PersistentState {
             tx_data: StaticTxData {
                 nonce: 1u64.into(),
@@ -381,6 +382,7 @@ async fn test_manager_new() {
         let (mut middleware, gas_oracle, mut db) = setup_dependencies();
         middleware.get_block_number = vec![1];
         middleware.get_transaction_receipt = vec![true];
+        middleware.get_transaction_count = Some(());
         db.get_state_output = Some(Some(PersistentState {
             tx_data: StaticTxData {
                 nonce: 1u64.into(),
