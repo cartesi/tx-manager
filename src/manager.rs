@@ -32,6 +32,12 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("gas oracle: {0}")]
     GasOracle(GO::Error, M::Error),
 
+    #[error("invalid assumption: nonce too low")]
+    NonceTooLow {
+        current_nonce: U256,
+        expected_nonce: U256,
+    },
+
     #[error("internal error: latest block is none")]
     LatestBlockIsNone,
 
@@ -124,6 +130,24 @@ where
         let transaction_receipt = match manager.db.get_state().await.map_err(Error::Database)? {
             Some(mut state) => {
                 warn!("Dealing with previous state => {:#?}", state);
+
+                {
+                    let current_nonce = manager.get_nonce(state.tx_data.transaction.from).await?;
+                    let expected_nonce = state.tx_data.nonce;
+
+                    if current_nonce > expected_nonce {
+                        error!(
+                            "Nonce too low! Current is `{}`, expected `{}`",
+                            current_nonce, expected_nonce
+                        );
+
+                        return Err(Error::NonceTooLow {
+                            current_nonce,
+                            expected_nonce,
+                        });
+                    }
+                }
+
                 let wait_time = manager.wait_time(state.tx_data.confirmations, None);
 
                 let transaction_receipt = manager
@@ -139,6 +163,30 @@ where
         };
 
         Ok((manager, transaction_receipt))
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn new_ignore_pending(
+        provider: M,
+        gas_oracle: Option<GO>,
+        db: DB,
+        chain_id: U64,
+        configuration: Configuration<T>,
+    ) -> Result<Self, Error<M, GO, DB>> {
+        let mut manager = Self {
+            provider,
+            gas_oracle,
+            db,
+            chain_id,
+            configuration,
+        };
+
+        trace!("Instantiating a new transaction manager => {:#?}", manager);
+
+        trace!("Clearing DB state");
+        manager.db.clear_state().await.map_err(Error::Database)?;
+
+        Ok(manager)
     }
 
     /// Sends a transaction and returns the receipt.
