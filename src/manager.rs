@@ -32,7 +32,7 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("gas oracle: {0}")]
     GasOracle(GO::Error, M::Error),
 
-    #[error("invalid assumption: nonce too low")]
+    #[error("nonce too low (expected: {expected_nonce}, current: {current_nonce})")]
     NonceTooLow {
         current_nonce: U256,
         expected_nonce: U256,
