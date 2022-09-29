@@ -3,7 +3,7 @@ use ethers::{
     providers::Middleware,
     types::{
         transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes,
-        Eip1559TransactionRequest, NameOrAddress, TransactionReceipt, H256, U256, U64,
+        NameOrAddress, TransactionReceipt, H256, U256, U64,
     },
 };
 
@@ -57,6 +57,10 @@ pub struct Configuration<T: Time> {
 
     /// Dependency that handles process sleeping and calculating elapsed time.
     pub time: T,
+
+    /// Set to true when sending legacy transactions, and set to false when sending EIP1559
+    /// transactions.
+    pub legacy: bool,
 }
 
 impl<T: Time> Configuration<T> {
@@ -85,6 +89,7 @@ impl Default for Configuration<DefaultTime> {
             transaction_mining_time: TRANSACTION_MINING_TIME,
             block_time: BLOCK_TIME,
             time: DefaultTime,
+            legacy: false,
         }
     }
 }
@@ -250,40 +255,46 @@ where
 
         // Estimating gas prices and sleep times.
         let gas_info: GasInfo = self.gas_info(tx_data.priority).await?;
-        let max_fee = gas_info.max_fee;
-        let max_priority_fee = match gas_info.max_priority_fee {
-            Some(max_priority_fee) => max_priority_fee,
-            None => self.get_max_priority_fee(max_fee).await?,
-        };
         if let Some(block_time) = gas_info.block_time {
             self.configuration.block_time = block_time;
         }
         let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
 
         // Creating the transaction request.
-        let request: TypedTransaction = {
-            let mut request: Eip1559TransactionRequest =
-                tx_data.transaction.to_eip_1559_transaction_request(
+        let typed_transaction: TypedTransaction = {
+            let mut typed_transaction = if self.configuration.legacy {
+                // Legacy transactions.
+                // TODO
+                TypedTransaction::Legacy(tx_data.transaction.to_legacy_transaction_request())
+            } else {
+                // EIP1559 transactions.
+                let max_priority_fee = match gas_info.max_priority_fee {
+                    Some(max_priority_fee) => max_priority_fee,
+                    None => self.get_max_priority_fee(gas_info.max_fee).await?,
+                };
+                TypedTransaction::Eip1559(tx_data.transaction.to_eip_1559_transaction_request(
                     self.chain_id,
                     tx_data.nonce,
                     max_priority_fee,
-                    max_fee,
-                );
+                    gas_info.max_fee,
+                ))
+            };
 
             // Estimating the gas limit of the transaction.
-            request.gas = Some(
+            typed_transaction.set_gas(
                 self.provider
-                    .estimate_gas(&TypedTransaction::Eip1559(request.clone()))
+                    .estimate_gas(&typed_transaction)
                     .await
                     .map_err(Error::Middleware)?,
             );
 
-            request.into()
+            typed_transaction
         };
 
         {
             // Calculating the transaction hash.
-            let (transaction_hash, raw_transaction) = self.raw_transaction(&request).await?;
+            let (transaction_hash, raw_transaction) =
+                self.raw_transaction(&typed_transaction).await?;
 
             // Checking for the "already known" transactions.
             if !state.submitted_txs.contains(transaction_hash) {

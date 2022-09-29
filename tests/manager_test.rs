@@ -367,6 +367,7 @@ async fn test_manager_new() {
                 transaction_mining_time: Duration::ZERO,
                 block_time: Duration::ZERO,
                 time: Time,
+                legacy: false,
             },
         )
         .await;
@@ -403,6 +404,7 @@ async fn test_manager_new() {
                 transaction_mining_time: Duration::ZERO,
                 block_time: Duration::ZERO,
                 time: Time,
+                legacy: false,
             },
         )
         .await;
@@ -734,6 +736,7 @@ where
             transaction_mining_time: Duration::ZERO,
             block_time: Duration::ZERO,
             time: Time,
+            legacy: false,
         },
     )
     .await;

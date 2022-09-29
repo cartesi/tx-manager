@@ -1,6 +1,8 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
-use ethers::types::{Address, Eip1559TransactionRequest, NameOrAddress, H256, U256, U64};
+use ethers::types::{
+    Address, Eip1559TransactionRequest, NameOrAddress, TransactionRequest, H256, U256, U64,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -20,6 +22,10 @@ pub struct Transaction {
 }
 
 impl Transaction {
+    pub fn to_legacy_transaction_request(&self) -> TransactionRequest {
+        todo!()
+    }
+
     pub fn to_eip_1559_transaction_request(
         &self,
         chain_id: U64,
