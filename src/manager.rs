@@ -12,10 +12,10 @@ use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::{error, info, trace, warn};
 
-use crate::database::Database;
-use crate::gas_oracle::{GasInfo, GasOracle};
+use crate::gas_oracle::{GasInfo, GasOracle, GasOracleInfo};
 use crate::time::{DefaultTime, Time};
 use crate::transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction};
+use crate::{database::Database, gas_oracle::EIP1559GasInfo};
 
 // Default values.
 const TRANSACTION_MINING_TIME: Duration = Duration::from_secs(60);
@@ -43,6 +43,9 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 
     #[error("internal error: latest base fee is none")]
     LatestBaseFeeIsNone,
+
+    #[error("internal error: incompatible gas oracle ({0})")]
+    IncompatibleGasOracle(&'static str),
 }
 
 #[derive(Debug)]
@@ -58,8 +61,8 @@ pub struct Configuration<T: Time> {
     /// Dependency that handles process sleeping and calculating elapsed time.
     pub time: T,
 
-    /// Set to true when sending legacy transactions, and set to false when sending EIP1559
-    /// transactions.
+    /// Set to true when sending legacy transactions, and set to false when
+    /// sending EIP1559 transactions.
     pub legacy: bool,
 }
 
@@ -153,14 +156,11 @@ where
                     }
                 }
 
-                let wait_time = manager.wait_time(state.tx_data.confirmations, None);
-
+                let wait_time = manager.get_wait_time(state.tx_data.confirmations, None);
                 let transaction_receipt = manager
                     .confirm_transaction(&mut state, wait_time, false)
                     .await?;
-
                 manager.db.clear_state().await.map_err(Error::Database)?;
-
                 Some(transaction_receipt)
             }
 
@@ -251,34 +251,21 @@ where
     ) -> Result<TransactionReceipt, Error<M, GO, DB>> {
         trace!("(Re)sending the transaction.");
 
-        let tx_data = &state.tx_data;
+        // Estimating gas prices.
+        let gas_oracle_info = self.get_gas_oracle_info(state.tx_data.priority).await?;
 
-        // Estimating gas prices and sleep times.
-        let gas_info: GasInfo = self.gas_info(tx_data.priority).await?;
-        if let Some(block_time) = gas_info.block_time {
+        // Overwriting the default block time and calculating the wait time.
+        if let Some(block_time) = gas_oracle_info.block_time {
             self.configuration.block_time = block_time;
         }
-        let wait_time = self.wait_time(tx_data.confirmations, gas_info.mining_time);
+        let wait_time =
+            self.get_wait_time(state.tx_data.confirmations, gas_oracle_info.mining_time);
 
         // Creating the transaction request.
         let typed_transaction: TypedTransaction = {
-            let mut typed_transaction = if self.configuration.legacy {
-                // Legacy transactions.
-                // TODO
-                TypedTransaction::Legacy(tx_data.transaction.to_legacy_transaction_request())
-            } else {
-                // EIP1559 transactions.
-                let max_priority_fee = match gas_info.max_priority_fee {
-                    Some(max_priority_fee) => max_priority_fee,
-                    None => self.get_max_priority_fee(gas_info.max_fee).await?,
-                };
-                TypedTransaction::Eip1559(tx_data.transaction.to_eip_1559_transaction_request(
-                    self.chain_id,
-                    tx_data.nonce,
-                    max_priority_fee,
-                    gas_info.max_fee,
-                ))
-            };
+            let mut typed_transaction = state
+                .tx_data
+                .to_typed_transaction(self.chain_id, gas_oracle_info.gas_info);
 
             // Estimating the gas limit of the transaction.
             typed_transaction.set_gas(
@@ -329,11 +316,11 @@ where
                     if is_error(&err, "transaction underpriced") {
                         assert!(!state.submitted_txs.is_empty());
                         warn!("Tried to send an underpriced transaction.");
-                        /* skips back to confirm_transaction */
+                        /* goes back to confirm_transaction */
                     } else if is_error(&err, "already known") {
                         assert!(!state.submitted_txs.is_empty());
                         warn!("Tried to send an already known transaction.");
-                        /* skips back to confirm_transaction */
+                        /* goes back to confirm_transaction */
                     } else {
                         error!("Error while submitting transaction: {:?}", err);
                         return Err(err);
@@ -393,8 +380,6 @@ where
                     if delta <= 0 {
                         return Ok(receipt);
                     }
-
-                    sleep_time = self.configuration.block_time;
                 }
                 None => {
                     trace!("No transaction mined.");
@@ -409,65 +394,82 @@ where
                         );
                         return self.send_then_confirm_transaction(state).await;
                     }
-
-                    sleep_time = self.configuration.block_time;
                 }
             }
+
+            sleep_time = self.configuration.block_time;
         }
     }
 
-    /// Retrieves the max fee and max priority fee from the provider and packs
-    /// it inside GasInfo.
+    /// Retrieves the gas_price (legacy) or max_fee and max_priority_fee
+    /// (EIP1559) from the provider and packs it inside GasOracleInfo.
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn provider_gas_info(&self) -> Result<GasInfo, M::Error> {
-        let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
-        Ok(GasInfo {
-            max_fee,
-            max_priority_fee: Some(max_priority_fee),
-            mining_time: None,
-            block_time: None,
-        })
+    async fn get_provider_gas_oracle_info(&self) -> Result<GasOracleInfo, M::Error> {
+        if self.configuration.legacy {
+            todo!()
+        } else {
+            let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
+            Ok(GasOracleInfo {
+                gas_info: GasInfo::EIP1559(EIP1559GasInfo {
+                    max_fee,
+                    max_priority_fee: Some(max_priority_fee),
+                }),
+                mining_time: None,
+                block_time: None,
+            })
+        }
     }
 
-    /// Retrieves the gas info from the gas oracle if there is one, or from the
-    /// provider otherwise.
+    /// Retrieves the gas oracle info from the gas oracle if there is one, or
+    /// from the provider otherwise.
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Error<M, GO, DB>> {
+    async fn get_gas_oracle_info(
+        &self,
+        priority: Priority,
+    ) -> Result<GasOracleInfo, Error<M, GO, DB>> {
         match &self.gas_oracle {
-            Some(gas_oracle) => match gas_oracle.gas_info(priority).await {
-                Ok(gas_info) => Ok(gas_info),
+            Some(gas_oracle) => match gas_oracle.gas_oracle_info(priority).await {
+                Ok(mut gas_oracle_info) => {
+                    if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
+                        if eip1559_gas_info.max_priority_fee.is_none() {
+                            // Using the provider to calculate the max_priority_fee with the
+                            // max_fee and the base_fee.
+                            let base_fee = self
+                                .provider
+                                .get_block(BlockId::Number(BlockNumber::Latest))
+                                .await
+                                .map_err(Error::Middleware)?
+                                .ok_or(Error::LatestBlockIsNone)?
+                                .base_fee_per_gas
+                                .ok_or(Error::LatestBaseFeeIsNone)?;
+
+                            assert!(
+                                eip1559_gas_info.max_fee > base_fee,
+                                "max_fee({:?}) <= base_fee({:?})",
+                                eip1559_gas_info.max_fee,
+                                base_fee
+                            );
+
+                            let max_priority_fee = eip1559_gas_info.max_fee - base_fee;
+                            eip1559_gas_info.max_priority_fee = Some(max_priority_fee);
+                            gas_oracle_info.gas_info = GasInfo::EIP1559(eip1559_gas_info)
+                        };
+                    }
+
+                    Ok(gas_oracle_info)
+                }
                 Err(err1) => {
                     warn!("Gas oracle has failed with error {:?}.", err1);
-                    self.provider_gas_info()
+                    self.get_provider_gas_oracle_info()
                         .await
                         .map_err(|err2| Error::GasOracle(err1, err2))
                 }
             },
-            None => self.provider_gas_info().await.map_err(Error::Middleware),
+            None => self
+                .get_provider_gas_oracle_info()
+                .await
+                .map_err(Error::Middleware),
         }
-    }
-
-    /// Calculates the max priority fee using the max fee and the base fee
-    /// (retrieved using the provider).
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
-        let base_fee = self
-            .provider
-            .get_block(BlockId::Number(BlockNumber::Latest))
-            .await
-            .map_err(Error::Middleware)?
-            .ok_or(Error::LatestBlockIsNone)?
-            .base_fee_per_gas
-            .ok_or(Error::LatestBaseFeeIsNone)?;
-
-        assert!(
-            max_fee > base_fee,
-            "max_fee({:?}) <= base_fee({:?})",
-            max_fee,
-            base_fee
-        );
-
-        Ok(max_fee - base_fee)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -520,7 +522,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn wait_time(
+    fn get_wait_time(
         &self,
         confirmations: usize,
         transaction_mining_time: Option<Duration>,

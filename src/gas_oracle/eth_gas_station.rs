@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::fmt::Debug;
 use tracing::trace;
 
-use crate::gas_oracle::{GasInfo, GasOracle};
+use crate::gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo};
 use crate::transaction::Priority;
 
 /// Implementation that uses the ETH Gas Station API.
@@ -39,7 +39,7 @@ impl GasOracle for ETHGasStationOracle {
     type Error = ETHGasStationError;
 
     #[tracing::instrument(level = "trace")]
-    async fn gas_info(&self, priority: Priority) -> Result<GasInfo, Self::Error> {
+    async fn gas_oracle_info(&self, priority: Priority) -> Result<GasOracleInfo, Self::Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
@@ -78,7 +78,7 @@ struct ETHGasStationResponse {
     low_time: f32,
 }
 
-impl From<(ETHGasStationResponse, Priority)> for GasInfo {
+impl From<(ETHGasStationResponse, Priority)> for GasOracleInfo {
     fn from((response, priority): (ETHGasStationResponse, Priority)) -> Self {
         let (gas_price, mining_time) = match priority {
             Priority::Low => (response.low, response.low_time),
@@ -93,9 +93,11 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
         let mining_time = Some(Duration::from_secs((mining_time * 60.) as u64));
         let block_time = Some(Duration::from_secs((response.block_time) as u64));
 
-        GasInfo {
-            max_fee,
-            max_priority_fee,
+        GasOracleInfo {
+            gas_info: GasInfo::EIP1559(EIP1559GasInfo {
+                max_fee,
+                max_priority_fee,
+            }),
             mining_time,
             block_time,
         }
@@ -104,8 +106,21 @@ impl From<(ETHGasStationResponse, Priority)> for GasInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::gas_oracle::{ETHGasStationOracle, GasOracle};
+    use crate::gas_oracle::{EIP1559GasInfo, ETHGasStationOracle, GasOracle, GasOracleInfo};
     use crate::transaction::Priority;
+
+    use super::ETHGasStationError;
+
+    // Auxiliary.
+    fn unwrap_eip1559_gas_info(
+        result: Result<GasOracleInfo, ETHGasStationError>,
+    ) -> EIP1559GasInfo {
+        assert!(result.is_ok(), "{:?}", result);
+        let eip1559_gas_info: Result<EIP1559GasInfo, &'static str> =
+            result.unwrap().gas_info.try_into();
+        assert!(eip1559_gas_info.is_ok(), "{:?}", eip1559_gas_info);
+        eip1559_gas_info.unwrap()
+    }
 
     #[tokio::test]
     async fn test_eth_gas_station_oracle_ok() {
@@ -114,32 +129,32 @@ mod tests {
         let gas_oracle = ETHGasStationOracle::new("works".to_string());
 
         // ok => priority low
-        let result = gas_oracle.gas_info(Priority::Low).await;
+        let result = gas_oracle.gas_oracle_info(Priority::Low).await;
         assert!(result.is_ok(), "{:?}", result);
-        let gas_info_low = result.unwrap();
-        assert!(gas_info_low.max_priority_fee.is_none());
+        let eip1559_gas_info_low = unwrap_eip1559_gas_info(result);
+        assert!(eip1559_gas_info_low.max_priority_fee.is_none());
 
         // ok => priority normal
-        let result = gas_oracle.gas_info(Priority::Normal).await;
+        let result = gas_oracle.gas_oracle_info(Priority::Normal).await;
         assert!(result.is_ok());
-        let gas_info_normal = result.unwrap();
-        assert!(gas_info_normal.max_priority_fee.is_none());
+        let eip1559_gas_info_normal = unwrap_eip1559_gas_info(result);
+        assert!(eip1559_gas_info_normal.max_priority_fee.is_none());
 
         // ok => priority high
-        let result = gas_oracle.gas_info(Priority::High).await;
+        let result = gas_oracle.gas_oracle_info(Priority::High).await;
         assert!(result.is_ok());
-        let gas_info_high = result.unwrap();
-        assert!(gas_info_high.max_priority_fee.is_none());
+        let eip1559_gas_info_high = unwrap_eip1559_gas_info(result);
+        assert!(eip1559_gas_info_high.max_priority_fee.is_none());
 
         // ok => priority ASAP
-        let result = gas_oracle.gas_info(Priority::ASAP).await;
+        let result = gas_oracle.gas_oracle_info(Priority::ASAP).await;
         assert!(result.is_ok());
-        let gas_info_asap = result.unwrap();
-        assert!(gas_info_asap.max_priority_fee.is_none());
+        let eip1559_gas_info_asap = unwrap_eip1559_gas_info(result);
+        assert!(eip1559_gas_info_asap.max_priority_fee.is_none());
 
-        assert!(gas_info_low.max_fee <= gas_info_normal.max_fee);
-        assert!(gas_info_normal.max_fee <= gas_info_high.max_fee);
-        assert!(gas_info_high.max_fee <= gas_info_asap.max_fee);
+        assert!(eip1559_gas_info_low.max_fee <= eip1559_gas_info_normal.max_fee);
+        assert!(eip1559_gas_info_normal.max_fee <= eip1559_gas_info_high.max_fee);
+        assert!(eip1559_gas_info_high.max_fee <= eip1559_gas_info_asap.max_fee);
     }
 
     #[tokio::test]
@@ -149,11 +164,11 @@ mod tests {
         let invalid2 = ETHGasStationOracle::new("".to_string());
 
         // ok => invalid API key works (for some reason)
-        let result = invalid1.gas_info(Priority::Normal).await;
+        let result = invalid1.gas_oracle_info(Priority::Normal).await;
         assert!(result.is_ok());
 
         // ok => empty API key works (for some reason)
-        let result = invalid2.gas_info(Priority::Normal).await;
+        let result = invalid2.gas_oracle_info(Priority::Normal).await;
         assert!(result.is_ok());
     }
 }

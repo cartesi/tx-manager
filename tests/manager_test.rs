@@ -12,7 +12,7 @@ use std::time::Duration;
 use tracing_subscriber::filter::EnvFilter;
 
 use tx_manager::database::FileSystemDatabase;
-use tx_manager::gas_oracle::{ETHGasStationOracle, GasInfo};
+use tx_manager::gas_oracle::{EIP1559GasInfo, ETHGasStationOracle, GasInfo, GasOracleInfo};
 use tx_manager::manager::{Configuration, Manager};
 use tx_manager::time::DefaultTime;
 use tx_manager::transaction::{
@@ -631,7 +631,7 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
     {
         let result = run_send_transaction(0, |mut middleware, mut gas_oracle, db| {
             middleware.estimate_eip1559_fees = Some((300, 50));
-            gas_oracle.gas_info_output = None;
+            gas_oracle.gas_oracle_info_output = None;
             (middleware, gas_oracle, db)
         })
         .await;
@@ -644,7 +644,7 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
     // "Middleware::estimate_eip1559_fees" fail.
     {
         let result = run_send_transaction(0, |middleware, mut gas_oracle, db| {
-            gas_oracle.gas_info_output = None;
+            gas_oracle.gas_oracle_info_output = None;
             (middleware, gas_oracle, db)
         })
         .await;
@@ -762,9 +762,11 @@ async fn run_send_transaction(
 ) -> Result<TransactionReceipt, MockManagerError> {
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);
-    gas_oracle.gas_info_output = Some(GasInfo {
-        max_fee: U256::from(1_000_000_000),
-        max_priority_fee: Some(U256::from(100_000)),
+    gas_oracle.gas_oracle_info_output = Some(GasOracleInfo {
+        gas_info: GasInfo::EIP1559(EIP1559GasInfo {
+            max_fee: U256::from(1_000_000_000),
+            max_priority_fee: Some(U256::from(100_000)),
+        }),
         mining_time: None,
         block_time: None,
     });

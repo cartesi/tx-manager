@@ -1,9 +1,12 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
-    Address, Eip1559TransactionRequest, NameOrAddress, TransactionRequest, H256, U256, U64,
+    transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest, NameOrAddress,
+    TransactionRequest, H256, U256, U64,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::gas_oracle::GasInfo;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
@@ -19,33 +22,6 @@ pub struct Transaction {
     pub to: Address,
     pub value: Value,
     pub call_data: Option<Bytes>, // smart contract payload
-}
-
-impl Transaction {
-    pub fn to_legacy_transaction_request(&self) -> TransactionRequest {
-        todo!()
-    }
-
-    pub fn to_eip_1559_transaction_request(
-        &self,
-        chain_id: U64,
-        nonce: U256,
-        max_priority_fee_per_gas: U256,
-        max_fee_per_gas: U256,
-    ) -> Eip1559TransactionRequest {
-        Eip1559TransactionRequest {
-            chain_id: Some(chain_id),
-            from: Some(self.from),
-            to: Some(NameOrAddress::Address(self.to)),
-            gas: None, // must be set after
-            value: Some(self.value.into()),
-            data: self.call_data.clone(),
-            nonce: Some(nonce),
-            access_list: AccessList::default(),
-            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
-            max_fee_per_gas: Some(max_fee_per_gas),
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +50,47 @@ pub struct StaticTxData {
 
     pub confirmations: usize,
     pub priority: Priority,
+}
+
+impl StaticTxData {
+    pub fn to_typed_transaction(&self, chain_id: U64, gas_info: GasInfo) -> TypedTransaction {
+        let from = Some(self.transaction.from);
+        let to = Some(NameOrAddress::Address(self.transaction.to));
+        let value = Some(self.transaction.value.into());
+        let data = self.transaction.call_data.clone();
+        let nonce = Some(self.nonce);
+        let chain_id = Some(chain_id);
+
+        match gas_info {
+            GasInfo::Legacy(legacy_gas_info) => {
+                TypedTransaction::Legacy(TransactionRequest {
+                    from,
+                    to,
+                    gas: None, // must be set after
+                    gas_price: Some(legacy_gas_info.gas_price),
+                    value,
+                    data,
+                    nonce,
+                    chain_id,
+                })
+            }
+            GasInfo::EIP1559(eip1559_gas_info) => {
+                TypedTransaction::Eip1559(Eip1559TransactionRequest {
+                    from,
+                    to,
+                    gas: None, // must be set after
+                    value,
+                    data,
+                    nonce,
+                    access_list: AccessList::default(),
+                    // max_priority_fee must be set (guaranteed by get_gas_oracle_info)
+                    max_priority_fee_per_gas: Some(eip1559_gas_info.max_priority_fee.unwrap()),
+                    max_fee_per_gas: Some(eip1559_gas_info.max_fee),
+                    chain_id,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

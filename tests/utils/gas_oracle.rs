@@ -1,18 +1,18 @@
 use async_trait::async_trait;
 
-use tx_manager::gas_oracle::GasInfo;
+use tx_manager::gas_oracle::GasOracleInfo;
 use tx_manager::transaction::Priority;
 
 #[derive(Debug)]
 pub struct GasOracle {
-    pub gas_info_output: Option<GasInfo>,
+    pub gas_oracle_info_output: Option<GasOracleInfo>,
 }
 
 impl GasOracle {
     pub fn new() -> Self {
         Global::setup();
         Self {
-            gas_info_output: None,
+            gas_oracle_info_output: None,
         }
     }
 
@@ -31,9 +31,9 @@ pub enum GasOracleError {
 impl tx_manager::gas_oracle::GasOracle for GasOracle {
     type Error = GasOracleError;
 
-    async fn gas_info(&self, _: Priority) -> Result<GasInfo, Self::Error> {
+    async fn gas_oracle_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         unsafe { GLOBAL.gas_info_n += 1 };
-        self.gas_info_output.ok_or(GasOracleError::GasInfo)
+        self.gas_oracle_info_output.ok_or(GasOracleError::GasInfo)
     }
 }
 

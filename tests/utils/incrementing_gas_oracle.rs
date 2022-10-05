@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use ethers::prelude::U256;
 use tx_manager::{
-    gas_oracle::{GasInfo, GasOracle},
+    gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
     transaction::Priority,
 };
 
@@ -22,10 +22,12 @@ pub enum IncrementingGasOracleError {}
 impl GasOracle for IncrementingGasOracle {
     type Error = IncrementingGasOracleError;
 
-    async fn gas_info(&self, _: Priority) -> Result<GasInfo, Self::Error> {
-        let result = Ok(GasInfo {
-            max_fee: U256::from(2_000_000_000 + unsafe { GLOBAL.n }),
-            max_priority_fee: Some(U256::from(100_000)),
+    async fn gas_oracle_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
+        let result = Ok(GasOracleInfo {
+            gas_info: GasInfo::EIP1559(EIP1559GasInfo {
+                max_fee: U256::from(2_000_000_000 + unsafe { GLOBAL.n }),
+                max_priority_fee: Some(U256::from(100_000)),
+            }),
             mining_time: None,
             block_time: None,
         });
