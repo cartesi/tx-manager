@@ -55,7 +55,8 @@ pub struct Configuration<T: Time> {
     pub transaction_mining_time: Duration,
 
     /// Time it takes for a block to be mined. The transaction manager uses this
-    /// value as the polling interval when checking whether a block was mined.
+    /// value to calculate the polling interval when checking whether the
+    /// transaction was mined.
     pub block_time: Duration,
 
     /// Dependency that handles process sleeping and calculating elapsed time.
@@ -521,6 +522,7 @@ where
         Ok((hash, rlp_data))
     }
 
+    /// TODO: docs.
     #[tracing::instrument(level = "trace", skip_all)]
     fn get_wait_time(
         &self,
