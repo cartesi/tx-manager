@@ -12,7 +12,7 @@ use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::{error, info, trace, warn};
 
-use crate::gas_oracle::{GasInfo, GasOracle, GasOracleInfo};
+use crate::gas_oracle::{GasInfo, GasOracle, GasOracleInfo, LegacyGasInfo};
 use crate::time::{DefaultTime, Time};
 use crate::transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction};
 use crate::{database::Database, gas_oracle::EIP1559GasInfo};
@@ -406,22 +406,45 @@ where
     /// (EIP1559) from the provider and packs it inside GasOracleInfo.
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_provider_gas_oracle_info(&self) -> Result<GasOracleInfo, M::Error> {
-        if self.configuration.legacy {
-            todo!()
+        let gas_info = if self.configuration.legacy {
+            let gas_price = self.provider.get_gas_price().await?;
+            GasInfo::Legacy(LegacyGasInfo { gas_price })
         } else {
             let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
-            Ok(GasOracleInfo {
-                gas_info: GasInfo::EIP1559(EIP1559GasInfo {
-                    max_fee,
-                    max_priority_fee: Some(max_priority_fee),
-                }),
-                mining_time: None,
-                block_time: None,
+            GasInfo::EIP1559(EIP1559GasInfo {
+                max_fee,
+                max_priority_fee: Some(max_priority_fee),
             })
-        }
+        };
+        Ok(GasOracleInfo {
+            gas_info,
+            mining_time: None,
+            block_time: None,
+        })
     }
 
-    /// Retrieves the gas oracle info from the gas oracle if there is one, or
+    /// Uses the provider to calculate the max_priority_fee given the max_fee.
+    async fn get_max_priority_fee(&self, max_fee: U256) -> Result<U256, Error<M, GO, DB>> {
+        let base_fee = self
+            .provider
+            .get_block(BlockId::Number(BlockNumber::Latest))
+            .await
+            .map_err(Error::Middleware)?
+            .ok_or(Error::LatestBlockIsNone)?
+            .base_fee_per_gas
+            .ok_or(Error::LatestBaseFeeIsNone)?;
+
+        assert!(
+            max_fee > base_fee,
+            "max_fee({:?}) <= base_fee({:?})",
+            max_fee,
+            base_fee
+        );
+
+        Ok(max_fee - base_fee)
+    }
+
+    /// Retrieves the gas_oracle_info from the gas oracle if there is one, or
     /// from the provider otherwise.
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_gas_oracle_info(
@@ -429,31 +452,15 @@ where
         priority: Priority,
     ) -> Result<GasOracleInfo, Error<M, GO, DB>> {
         match &self.gas_oracle {
-            Some(gas_oracle) => match gas_oracle.gas_oracle_info(priority).await {
+            Some(gas_oracle) => match gas_oracle.get_info(priority).await {
                 Ok(mut gas_oracle_info) => {
+                    assert_eq!(gas_oracle_info.gas_info.legacy(), self.configuration.legacy);
+
                     if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
                         if eip1559_gas_info.max_priority_fee.is_none() {
-                            // Using the provider to calculate the max_priority_fee with the
-                            // max_fee and the base_fee.
-                            let base_fee = self
-                                .provider
-                                .get_block(BlockId::Number(BlockNumber::Latest))
-                                .await
-                                .map_err(Error::Middleware)?
-                                .ok_or(Error::LatestBlockIsNone)?
-                                .base_fee_per_gas
-                                .ok_or(Error::LatestBaseFeeIsNone)?;
-
-                            assert!(
-                                eip1559_gas_info.max_fee > base_fee,
-                                "max_fee({:?}) <= base_fee({:?})",
-                                eip1559_gas_info.max_fee,
-                                base_fee
-                            );
-
-                            let max_priority_fee = eip1559_gas_info.max_fee - base_fee;
-                            eip1559_gas_info.max_priority_fee = Some(max_priority_fee);
-                            gas_oracle_info.gas_info = GasInfo::EIP1559(eip1559_gas_info)
+                            eip1559_gas_info.max_priority_fee =
+                                Some(self.get_max_priority_fee(eip1559_gas_info.max_fee).await?);
+                            gas_oracle_info.gas_info = GasInfo::EIP1559(eip1559_gas_info);
                         };
                     }
 
@@ -509,16 +516,13 @@ where
         typed_transaction: &TypedTransaction,
     ) -> Result<(H256, Bytes), Error<M, GO, DB>> {
         let from = *typed_transaction.from().unwrap();
-
         let signature = self
             .provider
             .sign_transaction(typed_transaction, from)
             .await
             .map_err(Error::Middleware)?;
-
         let hash = typed_transaction.hash(&signature);
         let rlp_data = typed_transaction.rlp_signed(&signature);
-
         Ok((hash, rlp_data))
     }
 

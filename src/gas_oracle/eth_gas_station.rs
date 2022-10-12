@@ -39,7 +39,7 @@ impl GasOracle for ETHGasStationOracle {
     type Error = ETHGasStationError;
 
     #[tracing::instrument(level = "trace")]
-    async fn gas_oracle_info(&self, priority: Priority) -> Result<GasOracleInfo, Self::Error> {
+    async fn get_info(&self, priority: Priority) -> Result<GasOracleInfo, Self::Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
             self.api_key
@@ -129,25 +129,25 @@ mod tests {
         let gas_oracle = ETHGasStationOracle::new("works".to_string());
 
         // ok => priority low
-        let result = gas_oracle.gas_oracle_info(Priority::Low).await;
+        let result = gas_oracle.get_info(Priority::Low).await;
         assert!(result.is_ok(), "{:?}", result);
         let eip1559_gas_info_low = unwrap_eip1559_gas_info(result);
         assert!(eip1559_gas_info_low.max_priority_fee.is_none());
 
         // ok => priority normal
-        let result = gas_oracle.gas_oracle_info(Priority::Normal).await;
+        let result = gas_oracle.get_info(Priority::Normal).await;
         assert!(result.is_ok());
         let eip1559_gas_info_normal = unwrap_eip1559_gas_info(result);
         assert!(eip1559_gas_info_normal.max_priority_fee.is_none());
 
         // ok => priority high
-        let result = gas_oracle.gas_oracle_info(Priority::High).await;
+        let result = gas_oracle.get_info(Priority::High).await;
         assert!(result.is_ok());
         let eip1559_gas_info_high = unwrap_eip1559_gas_info(result);
         assert!(eip1559_gas_info_high.max_priority_fee.is_none());
 
         // ok => priority ASAP
-        let result = gas_oracle.gas_oracle_info(Priority::ASAP).await;
+        let result = gas_oracle.get_info(Priority::ASAP).await;
         assert!(result.is_ok());
         let eip1559_gas_info_asap = unwrap_eip1559_gas_info(result);
         assert!(eip1559_gas_info_asap.max_priority_fee.is_none());
@@ -164,11 +164,11 @@ mod tests {
         let invalid2 = ETHGasStationOracle::new("".to_string());
 
         // ok => invalid API key works (for some reason)
-        let result = invalid1.gas_oracle_info(Priority::Normal).await;
+        let result = invalid1.get_info(Priority::Normal).await;
         assert!(result.is_ok());
 
         // ok => empty API key works (for some reason)
-        let result = invalid2.gas_oracle_info(Priority::Normal).await;
+        let result = invalid2.get_info(Priority::Normal).await;
         assert!(result.is_ok());
     }
 }

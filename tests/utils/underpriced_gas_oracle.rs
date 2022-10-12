@@ -22,7 +22,7 @@ pub enum UnderpricedGasOracleError {}
 impl GasOracle for UnderpricedGasOracle {
     type Error = UnderpricedGasOracleError;
 
-    async fn gas_oracle_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
+    async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         let result = Ok(GasOracleInfo {
             gas_info: GasInfo::EIP1559(EIP1559GasInfo {
                 max_fee: U256::from(2_000_000_000 / unsafe { GLOBAL.n }),

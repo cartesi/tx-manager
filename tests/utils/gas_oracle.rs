@@ -31,7 +31,7 @@ pub enum GasOracleError {
 impl tx_manager::gas_oracle::GasOracle for GasOracle {
     type Error = GasOracleError;
 
-    async fn gas_oracle_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
+    async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         unsafe { GLOBAL.gas_info_n += 1 };
         self.gas_oracle_info_output.ok_or(GasOracleError::GasInfo)
     }
