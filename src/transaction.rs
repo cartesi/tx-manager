@@ -1,8 +1,8 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
-    transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest, NameOrAddress,
-    TransactionRequest, H256, U256, U64,
+    transaction::eip2718::TypedTransaction, Address, Chain, Eip1559TransactionRequest,
+    NameOrAddress, TransactionRequest, H256, U256, U64,
 };
 use serde::{Deserialize, Serialize};
 
@@ -53,13 +53,14 @@ pub struct StaticTxData {
 }
 
 impl StaticTxData {
-    pub fn to_typed_transaction(&self, chain_id: U64, gas_info: GasInfo) -> TypedTransaction {
+    pub fn to_typed_transaction(&self, chain: Chain, gas_info: GasInfo) -> TypedTransaction {
         let from = Some(self.transaction.from);
         let to = Some(NameOrAddress::Address(self.transaction.to));
         let value = Some(self.transaction.value.into());
         let data = self.transaction.call_data.clone();
         let nonce = Some(self.nonce);
-        let chain_id = Some(chain_id);
+        let chain_id: u64 = chain.into();
+        let chain_id: Option<U64> = Some(chain_id.into());
 
         match gas_info {
             GasInfo::Legacy(legacy_gas_info) => {

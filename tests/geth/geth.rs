@@ -11,6 +11,78 @@ const GETH: &str = "geth";
 /// The exposed APIs.
 const API: &str = "eth,net,web3,txpool,personal,debug";
 
+pub enum Geth {
+    Dev { block_time: u16 },
+    Goerli,
+}
+
+impl Geth {
+    fn command(&self) -> &str {
+        match self {
+            Geth::Dev { block_time: _ } => "geth",
+            Geth::Goerli => "geth --goerli",
+        }
+    }
+
+    fn start(&self, port: u16) -> GethNode {
+        let mut cmd = Command::new(self.command());
+
+        // Using stderr for logs.
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Opening the HTTP API.
+        cmd.arg("--http");
+        cmd.arg("--http.port").arg(port.to_string());
+        cmd.arg("--http.api").arg(API);
+
+        // Opening the WS API.
+        cmd.arg("--ws");
+        cmd.arg("--ws.port").arg(port.to_string());
+        cmd.arg("--ws.api").arg(API);
+
+        if let Geth::Dev { block_time } = self {
+            // Dev mode with custom block times.
+            cmd.arg("--dev");
+            cmd.arg("--dev.period").arg(block_time.to_string());
+        }
+
+        let mut child = cmd.spawn().expect("Could not start geth.");
+        let stdout = child
+            .stderr
+            .expect("Unable to get stderr for geth child process.");
+
+        let start = Instant::now();
+        let mut reader = BufReader::new(stdout);
+
+        loop {
+            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
+                panic!("Timed out waiting for geth to start. Is geth installed?")
+            }
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("Failed to read line from geth process.");
+
+            // Geth 1.9.23 uses "server started" while 1.9.18 uses "endpoint opened".
+            if line.contains("HTTP endpoint opened") || line.contains("HTTP server started") {
+                break;
+            }
+        }
+
+        child.stderr = Some(reader.into_inner());
+
+        GethNode {
+            process: child,
+            url: format!("http://localhost:{}", port),
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+
 pub struct GethNode {
     pub url: String,
     process: std::process::Child,

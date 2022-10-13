@@ -27,7 +27,7 @@ pub enum GasInfo {
 }
 
 impl GasInfo {
-    pub fn legacy(&self) -> bool {
+    pub fn is_legacy(&self) -> bool {
         match self {
             GasInfo::Legacy(_) => true,
             GasInfo::EIP1559(_) => false,

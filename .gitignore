@@ -1,2 +1,4 @@
 target
 .DS_Store
+goerli-geth-datadir
+test_database.json

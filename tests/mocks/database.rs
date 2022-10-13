@@ -3,13 +3,13 @@ use async_trait::async_trait;
 use tx_manager::transaction;
 
 #[derive(Debug)]
-pub struct Database {
+pub struct MockDatabase {
     pub set_state_output: Option<()>,
     pub get_state_output: Option<Option<transaction::PersistentState>>,
     pub clear_state_output: Option<()>,
 }
 
-impl Database {
+impl MockDatabase {
     pub fn new() -> Self {
         Global::setup();
         Self {
@@ -37,7 +37,7 @@ pub enum DatabaseStateError {
 }
 
 #[async_trait]
-impl tx_manager::database::Database for Database {
+impl tx_manager::database::Database for MockDatabase {
     type Error = DatabaseStateError;
 
     async fn set_state(&mut self, _: &transaction::PersistentState) -> Result<(), Self::Error> {

@@ -2,8 +2,8 @@ use async_recursion::async_recursion;
 use ethers::{
     providers::Middleware,
     types::{
-        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes,
-        NameOrAddress, TransactionReceipt, H256, U256, U64,
+        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes, Chain,
+        NameOrAddress, TransactionReceipt, H256, U256,
     },
 };
 
@@ -61,10 +61,6 @@ pub struct Configuration<T: Time> {
 
     /// Dependency that handles process sleeping and calculating elapsed time.
     pub time: T,
-
-    /// Set to true when sending legacy transactions, and set to false when
-    /// sending EIP1559 transactions.
-    pub legacy: bool,
 }
 
 impl<T: Time> Configuration<T> {
@@ -93,7 +89,6 @@ impl Default for Configuration<DefaultTime> {
             transaction_mining_time: TRANSACTION_MINING_TIME,
             block_time: BLOCK_TIME,
             time: DefaultTime,
-            legacy: false,
         }
     }
 }
@@ -103,7 +98,7 @@ pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     provider: M,
     gas_oracle: Option<GO>,
     db: DB,
-    chain_id: U64,
+    chain: Chain,
     configuration: Configuration<T>,
 }
 
@@ -123,14 +118,14 @@ where
         provider: M,
         gas_oracle: Option<GO>,
         db: DB,
-        chain_id: U64,
+        chain: Chain,
         configuration: Configuration<T>,
     ) -> Result<(Self, Option<TransactionReceipt>), Error<M, GO, DB>> {
         let mut manager = Self {
             provider,
             gas_oracle,
             db,
-            chain_id,
+            chain,
             configuration,
         };
 
@@ -176,14 +171,14 @@ where
         provider: M,
         gas_oracle: Option<GO>,
         db: DB,
-        chain_id: U64,
+        chain: Chain,
         configuration: Configuration<T>,
     ) -> Result<Self, Error<M, GO, DB>> {
         let mut manager = Self {
             provider,
             gas_oracle,
             db,
-            chain_id,
+            chain,
             configuration,
         };
 
@@ -266,7 +261,7 @@ where
         let typed_transaction: TypedTransaction = {
             let mut typed_transaction = state
                 .tx_data
-                .to_typed_transaction(self.chain_id, gas_oracle_info.gas_info);
+                .to_typed_transaction(self.chain, gas_oracle_info.gas_info);
 
             // Estimating the gas limit of the transaction.
             typed_transaction.set_gas(
@@ -406,7 +401,7 @@ where
     /// (EIP1559) from the provider and packs it inside GasOracleInfo.
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_provider_gas_oracle_info(&self) -> Result<GasOracleInfo, M::Error> {
-        let gas_info = if self.configuration.legacy {
+        let gas_info = if self.chain.is_legacy() {
             let gas_price = self.provider.get_gas_price().await?;
             GasInfo::Legacy(LegacyGasInfo { gas_price })
         } else {
@@ -454,7 +449,7 @@ where
         match &self.gas_oracle {
             Some(gas_oracle) => match gas_oracle.get_info(priority).await {
                 Ok(mut gas_oracle_info) => {
-                    assert_eq!(gas_oracle_info.gas_info.legacy(), self.configuration.legacy);
+                    assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy());
 
                     if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
                         if eip1559_gas_info.max_priority_fee.is_none() {
