@@ -96,7 +96,7 @@ impl Default for Configuration<DefaultTime> {
 #[derive(Debug)]
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {
     provider: M,
-    gas_oracle: Option<GO>,
+    gas_oracle: GO,
     db: DB,
     chain: Chain,
     configuration: Configuration<T>,
@@ -116,7 +116,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn new(
         provider: M,
-        gas_oracle: Option<GO>,
+        gas_oracle: GO,
         db: DB,
         chain: Chain,
         configuration: Configuration<T>,
@@ -167,9 +167,9 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn new_ignore_pending(
+    pub async fn force_new(
         provider: M,
-        gas_oracle: Option<GO>,
+        gas_oracle: GO,
         db: DB,
         chain: Chain,
         configuration: Configuration<T>,
@@ -446,32 +446,26 @@ where
         &self,
         priority: Priority,
     ) -> Result<GasOracleInfo, Error<M, GO, DB>> {
-        match &self.gas_oracle {
-            Some(gas_oracle) => match gas_oracle.get_info(priority).await {
-                Ok(mut gas_oracle_info) => {
-                    assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy());
+        match self.gas_oracle.get_info(priority, &self.provider).await {
+            Ok(mut gas_oracle_info) => {
+                assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy());
 
-                    if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
-                        if eip1559_gas_info.max_priority_fee.is_none() {
-                            eip1559_gas_info.max_priority_fee =
-                                Some(self.get_max_priority_fee(eip1559_gas_info.max_fee).await?);
-                            gas_oracle_info.gas_info = GasInfo::EIP1559(eip1559_gas_info);
-                        };
-                    }
+                if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
+                    if eip1559_gas_info.max_priority_fee.is_none() {
+                        eip1559_gas_info.max_priority_fee =
+                            Some(self.get_max_priority_fee(eip1559_gas_info.max_fee).await?);
+                        gas_oracle_info.gas_info = GasInfo::EIP1559(eip1559_gas_info);
+                    };
+                }
 
-                    Ok(gas_oracle_info)
-                }
-                Err(err1) => {
-                    warn!("Gas oracle has failed with error {:?}.", err1);
-                    self.get_provider_gas_oracle_info()
-                        .await
-                        .map_err(|err2| Error::GasOracle(err1, err2))
-                }
-            },
-            None => self
-                .get_provider_gas_oracle_info()
-                .await
-                .map_err(Error::Middleware),
+                Ok(gas_oracle_info)
+            }
+            Err(err1) => {
+                warn!("Gas oracle has failed with error {:?}.", err1);
+                self.get_provider_gas_oracle_info()
+                    .await
+                    .map_err(|err2| Error::GasOracle(err1, err2))
+            }
         }
     }
 

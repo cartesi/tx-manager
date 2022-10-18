@@ -1,31 +1,20 @@
-use std::io::{BufRead, BufReader};
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-/// How long we will wait for geth to indicate that it is ready.
-const GETH_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
+use std::{
+    io::{BufRead, BufReader},
+    process::Command,
+    time::{Duration, Instant},
+};
 
 /// The geth command.
 const GETH: &str = "geth";
 
-/// The exposed APIs.
-const API: &str = "eth,net,web3,txpool,personal,debug";
-
-pub enum Geth {
-    Dev { block_time: u16 },
-    Goerli,
+pub struct Geth {
+    pub url: String,
+    process: std::process::Child,
 }
 
 impl Geth {
-    fn command(&self) -> &str {
-        match self {
-            Geth::Dev { block_time: _ } => "geth",
-            Geth::Goerli => "geth --goerli",
-        }
-    }
-
-    fn start(&self, port: u16) -> GethNode {
-        let mut cmd = Command::new(self.command());
+    pub fn start(port: u16, block_time: u16) -> Geth {
+        let mut cmd = Command::new(GETH);
 
         // Using stderr for logs.
         cmd.stderr(std::process::Stdio::piped());
@@ -33,18 +22,12 @@ impl Geth {
         // Opening the HTTP API.
         cmd.arg("--http");
         cmd.arg("--http.port").arg(port.to_string());
-        cmd.arg("--http.api").arg(API);
+        cmd.arg("--http.api")
+            .arg("eth,net,web3,txpool,personal,debug");
 
-        // Opening the WS API.
-        cmd.arg("--ws");
-        cmd.arg("--ws.port").arg(port.to_string());
-        cmd.arg("--ws.api").arg(API);
-
-        if let Geth::Dev { block_time } = self {
-            // Dev mode with custom block times.
-            cmd.arg("--dev");
-            cmd.arg("--dev.period").arg(block_time.to_string());
-        }
+        // Dev mode with custom block times.
+        cmd.arg("--dev");
+        cmd.arg("--dev.period").arg(block_time.to_string());
 
         let mut child = cmd.spawn().expect("Could not start geth.");
         let stdout = child
@@ -54,8 +37,10 @@ impl Geth {
         let start = Instant::now();
         let mut reader = BufReader::new(stdout);
 
+        /// How long we will wait for geth to indicate that it is ready.
+        const GETH_STARTUP_TIMEOUT: u64 = 10;
         loop {
-            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
+            if start + Duration::from_secs(GETH_STARTUP_TIMEOUT) <= Instant::now() {
                 panic!("Timed out waiting for geth to start. Is geth installed?")
             }
 
@@ -72,72 +57,7 @@ impl Geth {
 
         child.stderr = Some(reader.into_inner());
 
-        GethNode {
-            process: child,
-            url: format!("http://localhost:{}", port),
-        }
-    }
-}
-
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-
-pub struct GethNode {
-    pub url: String,
-    process: std::process::Child,
-}
-
-impl GethNode {
-    pub fn start(port: u16, block_time: u16) -> GethNode {
-        let mut cmd = Command::new(GETH);
-
-        // geth uses stderr for its logs
-        cmd.stderr(std::process::Stdio::piped());
-
-        // Open the HTTP API
-        cmd.arg("--http");
-        cmd.arg("--http.port").arg(port.to_string());
-        cmd.arg("--http.api").arg(API);
-
-        // Open the WS API
-        cmd.arg("--ws");
-        cmd.arg("--ws.port").arg(port.to_string());
-        cmd.arg("--ws.api").arg(API);
-
-        // Dev mode with custom block time
-        cmd.arg("--dev");
-        cmd.arg("--dev.period").arg(block_time.to_string());
-
-        let mut child = cmd.spawn().expect("couldnt start geth");
-
-        let stdout = child
-            .stderr
-            .expect("Unable to get stderr for geth child process");
-
-        let start = Instant::now();
-        let mut reader = BufReader::new(stdout);
-
-        loop {
-            if start + Duration::from_millis(GETH_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
-                panic!("Timed out waiting for geth to start. Is geth installed?")
-            }
-
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .expect("Failed to read line from geth process");
-
-            // geth 1.9.23 uses "server started" while 1.9.18
-            // uses "endpoint opened"
-            if line.contains("HTTP endpoint opened") || line.contains("HTTP server started") {
-                break;
-            }
-        }
-
-        child.stderr = Some(reader.into_inner());
-
-        GethNode {
+        Geth {
             process: child,
             url: format!("http://localhost:{}", port),
         }
@@ -191,7 +111,6 @@ impl GethNode {
         instruction.push_str(&amount_in_ethers.to_string());
         instruction.push_str(", \"ether\")}");
         instruction.push_str(", \"\")");
-        // println!("{:?}", instruction);
         let output = self.new_command(&instruction);
         let _ = std::str::from_utf8(&output).unwrap();
 
@@ -215,7 +134,7 @@ impl GethNode {
     }
 }
 
-impl Drop for GethNode {
+impl Drop for Geth {
     fn drop(&mut self) {
         self.process.kill().expect("could not kill geth");
     }

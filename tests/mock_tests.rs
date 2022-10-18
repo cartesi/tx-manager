@@ -1,360 +1,36 @@
-use ethers::middleware::signer::SignerMiddleware;
-use ethers::prelude::k256::ecdsa::SigningKey;
-use ethers::prelude::Wallet;
-use ethers::providers::{Http, Provider};
-use ethers::signers::LocalWallet;
-use ethers::signers::Signer;
 use ethers::types::{Chain, TransactionReceipt, U256};
 use serial_test::serial;
-use std::fs::remove_file;
-use std::sync::Arc;
 use std::time::Duration;
-use tracing_subscriber::filter::EnvFilter;
 
-use tx_manager::database::FileSystemDatabase;
-use tx_manager::gas_oracle::{EIP1559GasInfo, ETHGasStationOracle, GasInfo, GasOracleInfo};
-use tx_manager::manager::{Configuration, Manager};
-use tx_manager::time::DefaultTime;
-use tx_manager::transaction::{
-    PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction, Value,
+use tx_manager::{
+    gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
+    manager::{Configuration, Manager},
+    transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction, Value},
 };
 
-mod geth;
-use geth::GethNode;
-
-mod mocks;
-use mocks::{
-    database::{DatabaseStateError, MockDatabase},
-    gas_oracle::{
-        DefaultGasOracle, DefaultGasOracleError, IncrementingGasOracle, UnderpricedGasOracle,
+use utilities::{
+    assert_err, assert_ok,
+    mocks::{
+        database::{DatabaseStateError, MockDatabase},
+        gas_oracle::{IncrementingGasOracle, MockGasOracle, MockGasOracleError},
+        middleware::{MockMiddleware, MockMiddlewareError},
+        time::MockTime,
     },
-    middleware::{MockMiddleware, MockMiddlewareError},
-    time::MockTime,
+    ACCOUNT1, ACCOUNT2,
 };
 
-use tx_manager::gas_oracle::GasOracle as GasOracleTrait;
-
-type MockManagerError = tx_manager::Error<MockMiddleware, DefaultGasOracle, MockDatabase>;
+type MockManagerError = tx_manager::Error<MockMiddleware, MockGasOracle, MockDatabase>;
 type MockManagerError2<GO> = tx_manager::Error<MockMiddleware, GO, MockDatabase>;
-
-macro_rules! assert_ok(
-    ($result: expr) => {
-        match $result {
-            Ok(..) => {},
-            Err(err) => panic!("expected Ok, got Err({:?})", err),
-        }
-    };
-);
-
-macro_rules! assert_err(
-    ($result: expr, $expected: expr) => {
-        match $result {
-            Ok(..) => panic!("expected Err({:?}), got Ok(..)", $expected),
-            Err(err) => assert_eq!(err.to_string(), $expected.to_string()),
-        }
-    };
-);
-
-const GETH_PORT: u16 = 8545;
-const GETH_BLOCK_TIME: u16 = 12;
-const GETH_CHAIN: Chain = Chain::Dev;
-const PRIVATE_KEY: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f";
-const FUNDS: u64 = 100;
-const ETH_GAS_STATION_API_KEY: &str = "api key";
-const DATABASE_PATH: &str = "./test_database.json";
-
-ethers::contract::abigen!(TestContract, "./tests/contracts/bin/TestContract.abi");
-
-/// Auxiliary setup function.
-/// Starts the geth node and creates two accounts.
-/// Then, gives FUNDS to the first account.
-/// Finally, instantiates the transaction manager.
-async fn geth_setup<GO: tx_manager::gas_oracle::GasOracle>(
-    gas_oracle: Option<GO>,
-    configuration: Configuration<DefaultTime>,
-) -> (
-    GethNode,
-    String,
-    String,
-    Manager<
-        SignerMiddleware<Provider<Http>, Wallet<SigningKey>>,
-        GO,
-        FileSystemDatabase,
-        DefaultTime,
-    >,
-)
-where
-    GO: Send + Sync,
-{
-    // Starting the geth node and creating two accounts.
-    let geth = GethNode::start(GETH_PORT, GETH_BLOCK_TIME);
-    let account1 = geth.new_account_with_private_key(PRIVATE_KEY);
-    let account2 = geth.new_account();
-
-    // Giving funds and checking account balances.
-    geth.give_funds(&account1, FUNDS).await;
-    assert_eq!(FUNDS, geth.check_balance_in_ethers(&account1));
-    assert_eq!(0, geth.check_balance_in_ethers(&account2));
-
-    // Instantiating the transaction manager.
-    let manager = {
-        let signer = PRIVATE_KEY
-            .parse::<LocalWallet>()
-            .unwrap()
-            .with_chain_id(GETH_CHAIN);
-        let provider = SignerMiddleware::new(
-            Provider::<Http>::try_from(geth.url.clone()).unwrap(),
-            signer,
-        );
-        remove_file(DATABASE_PATH).unwrap_or(());
-        let manager = Manager::new(
-            provider,
-            gas_oracle,
-            FileSystemDatabase::new(DATABASE_PATH.to_string()),
-            GETH_CHAIN.into(),
-            configuration,
-        )
-        .await;
-        assert_ok!(manager);
-        manager.unwrap().0
-    };
-
-    (geth, account1, account2, manager)
-}
-
-#[ignore]
-#[tokio::test]
-#[serial]
-async fn test_manager_with_goerli() {
-    setup_tracing();
-
-    let geth = GethNode::start(GETH_PORT, GETH_BLOCK_TIME);
-    let account1 = geth.new_account_with_private_key(PRIVATE_KEY);
-    let account2 = geth.new_account();
-
-    let manager = {
-        let signer = PRIVATE_KEY
-            .parse::<LocalWallet>()
-            .unwrap()
-            .with_chain_id(Chain::Goerli);
-        let provider = SignerMiddleware::new(
-            Provider::<Http>::try_from(geth.url.clone()).unwrap(),
-            signer,
-        );
-
-        remove_file(DATABASE_PATH).unwrap_or(());
-        let manager = Manager::new(
-            provider,
-            None as Option<ETHGasStationOracle>,
-            FileSystemDatabase::new(DATABASE_PATH.into()),
-            GETH_CHAIN.into(),
-            Configuration::default(),
-        )
-        .await;
-        assert_ok!(manager);
-        manager.unwrap().0
-    };
-
-    let transaction = Transaction {
-        from: account1.parse().unwrap(),
-        to: account2.parse().unwrap(),
-        value: Value::Number(ethers::utils::parse_ether(1u64).unwrap()),
-        call_data: None,
-    };
-
-    let result = manager
-        .send_transaction(transaction, 1, Priority::Normal)
-        .await;
-    assert_ok!(result);
-}
-
-/// This test takes around 90s to finish.
-#[tokio::test]
-#[serial]
-async fn test_manager_with_geth() {
-    setup_tracing();
-
-    let gas_oracle = ETHGasStationOracle::new(ETH_GAS_STATION_API_KEY.to_string());
-    let configuration = Configuration::default();
-    let (geth, account1, account2, manager) = geth_setup(Some(gas_oracle), configuration).await;
-
-    // Sending the first transaction.
-    let amount1 = 10u64; // in ethers
-    let manager = {
-        let transaction = Transaction {
-            from: account1.parse().unwrap(),
-            to: account2.parse().unwrap(),
-            value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
-            call_data: None,
-        };
-
-        let result = manager
-            .send_transaction(transaction, 3, Priority::Normal)
-            .await;
-
-        assert_ok!(result);
-        let (manager, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == FUNDS - amount1 - 1);
-        let account2_balance = geth.check_balance_in_ethers(&account2);
-        assert!(account2_balance == amount1);
-        manager
-    };
-
-    // Sending the second transaction
-    let amount2 = 25u64; // in ethers
-    {
-        let transaction = Transaction {
-            from: account1.parse().unwrap(),
-            to: account2.parse().unwrap(),
-            value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
-            call_data: None,
-        };
-
-        let result = manager
-            .send_transaction(transaction, 1, Priority::ASAP)
-            .await;
-
-        assert_ok!(result);
-        let (_, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(&account1);
-        assert!(account1_balance == FUNDS - amount1 - amount2 - 1);
-        let account2_balance = geth.check_balance_in_ethers(&account2);
-        assert!(account2_balance == amount1 + amount2);
-    }
-}
-
-/// If you send a transaction that is exactly equal (same hash) to a transaction
-/// that is already in the transaction pool, then you will receive a <code:
-/// -32000, message: "already known"> error. This test checks that the
-/// transaction manager ignores that error.
-#[tokio::test]
-#[serial]
-async fn test_manager_already_known_error() {
-    setup_tracing();
-
-    // Setup.
-    let configuration = Configuration::default()
-        .set_transaction_mining_time(Duration::ZERO)
-        .set_block_time(Duration::from_secs(GETH_BLOCK_TIME as u64 / 4));
-    let (_geth, account1, account2, manager) =
-        geth_setup::<DefaultGasOracle>(None, configuration).await;
-
-    // Sending the transaction.
-    let transaction = Transaction {
-        from: account1.parse().unwrap(),
-        to: account2.parse().unwrap(),
-        value: Value::Number(ethers::utils::parse_ether(10).unwrap()),
-        call_data: None,
-    };
-
-    // Testing.
-    let result = manager
-        .send_transaction(transaction, 0, Priority::Normal)
-        .await;
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-#[serial]
-async fn test_manager_transaction_underpriced_error() {
-    setup_tracing();
-
-    // Setup.
-    let gas_oracle = UnderpricedGasOracle::new();
-    let configuration = Configuration::default()
-        .set_transaction_mining_time(Duration::ZERO)
-        .set_block_time(Duration::from_secs(GETH_BLOCK_TIME as u64 / 4));
-    let (_geth, account1, account2, manager) = geth_setup(Some(gas_oracle), configuration).await;
-
-    // Sending the transaction.
-    let transaction = Transaction {
-        from: account1.parse().unwrap(),
-        to: account2.parse().unwrap(),
-        value: Value::Number(ethers::utils::parse_ether(10).unwrap()),
-        call_data: None,
-    };
-
-    // Testing.
-    let result = manager
-        .send_transaction(transaction, 0, Priority::Normal)
-        .await;
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-#[serial]
-async fn test_manager_with_geth_smart_contract() {
-    setup_tracing();
-
-    let configuration = Configuration::default();
-    let (geth, account1, _, manager) = geth_setup::<DefaultGasOracle>(None, configuration).await;
-
-    // Deploying the smart contract.
-    let (contract_address, contract) = {
-        let signer = PRIVATE_KEY
-            .parse::<LocalWallet>()
-            .unwrap()
-            .with_chain_id(GETH_CHAIN);
-        let provider = Arc::new(SignerMiddleware::new(
-            Provider::<Http>::try_from(geth.url.clone()).unwrap(),
-            signer,
-        ));
-
-        let contract = {
-            let bytecode = hex::decode(include_bytes!("contracts/bin/TestContract.bin"))
-                .unwrap()
-                .into();
-
-            let factory = ethers::prelude::ContractFactory::new(
-                TESTCONTRACT_ABI.clone(),
-                bytecode,
-                Arc::clone(&provider),
-            );
-            factory.deploy(()).unwrap().send().await.unwrap()
-        };
-        let contract_address = contract.address();
-        println!("contract_address: {}", contract_address);
-        (
-            contract_address,
-            TestContract::new(contract_address, provider),
-        )
-    };
-
-    // Sending the transaction
-    // Calling the <increment> function from the smart contract.
-    {
-        let from = account1.parse().unwrap();
-        let data = contract.increment().tx.data().unwrap().clone();
-        println!("data: {}", data);
-        let transaction = Transaction {
-            from,
-            to: contract_address,
-            value: Value::Nothing,
-            call_data: Some(data),
-        };
-
-        let result = manager
-            .send_transaction(transaction, 1, Priority::ASAP)
-            .await;
-
-        assert_ok!(result);
-        let (manager, _) = result.unwrap();
-        manager
-    };
-
-    // TODO: check if the contract was updated.
-}
 
 #[tokio::test]
 #[serial]
 async fn test_manager_new() {
-    setup_tracing();
+    utilities::setup_tracing();
     let chain = Chain::Mainnet;
 
     let transaction = Transaction {
-        from: HASH1.parse().unwrap(),
-        to: HASH2.parse().unwrap(),
+        from: ACCOUNT1.address.parse().unwrap(),
+        to: ACCOUNT2.address.parse().unwrap(),
         value: Value::Number(U256::from(5u64)),
         call_data: None,
     };
@@ -363,14 +39,8 @@ async fn test_manager_new() {
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = Some(None);
-        let result = Manager::new(
-            middleware,
-            Some(gas_oracle),
-            db,
-            chain,
-            Configuration::default(),
-        )
-        .await;
+        let result =
+            Manager::new(middleware, gas_oracle, db, chain, Configuration::default()).await;
         assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         assert_eq!(transaction_receipt, None);
@@ -381,14 +51,8 @@ async fn test_manager_new() {
     {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = None;
-        let result = Manager::new(
-            middleware,
-            Some(gas_oracle),
-            db,
-            chain,
-            Configuration::default(),
-        )
-        .await;
+        let result =
+            Manager::new(middleware, gas_oracle, db, chain, Configuration::default()).await;
         let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Get);
         assert_err!(result, expected_err);
     }
@@ -414,7 +78,7 @@ async fn test_manager_new() {
         db.clear_state_output = Some(());
         let result = Manager::new(
             middleware,
-            Some(gas_oracle),
+            gas_oracle,
             db,
             chain,
             Configuration {
@@ -450,7 +114,7 @@ async fn test_manager_new() {
         }));
         let result = Manager::new(
             middleware,
-            Some(gas_oracle),
+            gas_oracle,
             db,
             chain,
             Configuration {
@@ -468,7 +132,7 @@ async fn test_manager_new() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_advanced() {
-    setup_tracing();
+    utilities::setup_tracing();
 
     // Resends the transaction once.
     {
@@ -512,7 +176,7 @@ async fn test_manager_send_transaction_advanced() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic() {
-    setup_tracing();
+    utilities::setup_tracing();
 
     // Ok (0 confirmations).
     {
@@ -590,7 +254,7 @@ async fn test_manager_send_transaction_basic() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_middleware_errors() {
-    setup_tracing();
+    utilities::setup_tracing();
 
     // "Middleware::estimate_eip1559_fees" is being tested in the
     // test_manager_send_transaction_basic_gas_oracle_errors function bellow.
@@ -677,7 +341,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_gas_oracle_errors() {
-    setup_tracing();
+    utilities::setup_tracing();
 
     // When only "GasOracle::gas_info" fails.
     {
@@ -688,7 +352,7 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
         })
         .await;
         assert_ok!(result);
-        assert_eq!(1, DefaultGasOracle::global().gas_info_n);
+        assert_eq!(1, MockGasOracle::global().gas_info_n);
         assert_eq!(1, MockMiddleware::global().estimate_eip1559_fees_n);
     }
 
@@ -701,11 +365,11 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
         })
         .await;
         let expected_err: MockManagerError = tx_manager::Error::GasOracle(
-            DefaultGasOracleError::GasInfo,
+            MockGasOracleError::GasInfo,
             MockMiddlewareError::EstimateEIP1559Fees,
         );
         assert_err!(result, expected_err);
-        assert_eq!(1, DefaultGasOracle::global().gas_info_n);
+        assert_eq!(1, MockGasOracle::global().gas_info_n);
         assert_eq!(1, MockMiddleware::global().estimate_eip1559_fees_n);
     }
 }
@@ -713,7 +377,7 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
 #[tokio::test]
 #[serial]
 async fn test_manager_send_transaction_basic_database_errors() {
-    setup_tracing();
+    utilities::setup_tracing();
 
     // When "Database::set_state" fails.
     {
@@ -740,39 +404,23 @@ async fn test_manager_send_transaction_basic_database_errors() {
     }
 }
 
-// Auxiliary variables and functions.
+// ------------------------------------------------------------------------------------------------
+// Auxiliary
+// ------------------------------------------------------------------------------------------------
+
+fn setup_dependencies() -> (MockMiddleware, MockGasOracle, MockDatabase) {
+    (
+        MockMiddleware::new(),
+        MockGasOracle::new(),
+        MockDatabase::new(),
+    )
+}
 
 const HASH1: &str = "0xba763b97851b653aaaf631723bab41a500f03b29";
 const HASH2: &str = "0x29e425df042e83e4ddb3ee3348d6d745c58fce8f";
 
 const TRANSACTION_HASH1: &str =
     "0x2b34df791cc4eb898f6d4437713e946f216cac6a3921b2899db919abe26739b2";
-
-fn setup_tracing() {
-    let format = tracing_subscriber::fmt::format()
-        .without_time()
-        .with_target(false)
-        .with_level(false)
-        .with_thread_ids(false)
-        .with_thread_names(false)
-        .with_file(false)
-        .with_line_number(false)
-        .with_source_location(false)
-        .compact();
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .event_format(format)
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
-}
-
-fn setup_dependencies() -> (MockMiddleware, DefaultGasOracle, MockDatabase) {
-    (
-        MockMiddleware::new(),
-        DefaultGasOracle::new(),
-        MockDatabase::new(),
-    )
-}
 
 async fn setup_manager<GO: tx_manager::gas_oracle::GasOracle>(
     middleware: MockMiddleware,
@@ -785,7 +433,7 @@ where
     db.get_state_output = Some(None);
     let result = Manager::new(
         middleware,
-        Some(gas_oracle),
+        gas_oracle,
         db,
         Chain::Mainnet,
         Configuration {
@@ -815,9 +463,9 @@ async fn run_send_transaction(
     confirmations: usize,
     f: fn(
         MockMiddleware,
-        DefaultGasOracle,
+        MockGasOracle,
         MockDatabase,
-    ) -> (MockMiddleware, DefaultGasOracle, MockDatabase),
+    ) -> (MockMiddleware, MockGasOracle, MockDatabase),
 ) -> Result<TransactionReceipt, MockManagerError> {
     let (mut middleware, mut gas_oracle, mut db) = setup_dependencies();
     middleware = setup_middleware(middleware);
@@ -848,7 +496,7 @@ async fn run_send_transaction(
 }
 
 // TODO
-async fn run_send_transaction2<GO: GasOracleTrait>(
+async fn run_send_transaction2<GO: GasOracle>(
     confirmations: usize,
     gas_oracle: GO,
     f: fn(MockMiddleware) -> MockMiddleware,
