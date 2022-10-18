@@ -13,11 +13,16 @@ use tx_manager::{
 mod infra;
 use infra::Net;
 
+const PRIVATE_KEY1: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f";
+const PRIVATE_KEY2: &str = "fda4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de88";
+// const ADDRESS1: &str = "0x63fac9201494f0bd17b9892b9fae4d52fe3bd377";
+// const ADDRESS2: &str = "0xf30e6e20be8474393f2f2bbd61a52143d851c19b";
 
 #[tokio::test]
 async fn test_goerli() {
     // setup_tracing(); TODO
 
+    let infura_api_key = "";
     let provider_http_url = "https://goerli.infura.io/v3/".to_string() + infura_api_key;
     let net = Net {
         provider_http_url,

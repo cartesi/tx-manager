@@ -22,14 +22,18 @@ pub enum UnderpricedGasOracleError {}
 impl GasOracle for UnderpricedGasOracle {
     type Error = UnderpricedGasOracleError;
 
+    /// Guarantees that from the second transaction onward the max fee will be underpriced.
     async fn get_info<M: Middleware>(
         &self,
         _: Priority,
         _: &M,
     ) -> Result<GasOracleInfo, Self::Error> {
+        // The first transaction has a max_fee of 2 gwei.
+        let initial_max_fee = 2e9 as u32;
         let result = Ok(GasOracleInfo {
             gas_info: GasInfo::EIP1559(EIP1559GasInfo {
-                max_fee: U256::from(2_000_000_000 / unsafe { GLOBAL.n }),
+                // The nth transaction has a max_fee of 2/n gwei.
+                max_fee: U256::from(initial_max_fee / unsafe { GLOBAL.n }),
                 max_priority_fee: None,
             }),
             mining_time: None,

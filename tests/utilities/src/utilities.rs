@@ -1,3 +1,4 @@
+use ethers::types::H160;
 use tracing_subscriber::filter::EnvFilter;
 
 #[macro_export]
@@ -21,6 +22,7 @@ macro_rules! assert_err(
 );
 
 pub fn setup_tracing() {
+    // RUST_LOG="tx_manager::manager=trace"
     let format = tracing_subscriber::fmt::format()
         .without_time()
         .with_target(false)
@@ -41,6 +43,12 @@ pub fn setup_tracing() {
 pub struct Account {
     pub address: &'static str,
     pub private_key: &'static str,
+}
+
+impl From<Account> for H160 {
+    fn from(account: Account) -> Self {
+        account.address.parse().unwrap()
+    }
 }
 
 pub const ACCOUNT1: Account = Account {

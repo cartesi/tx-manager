@@ -309,7 +309,7 @@ where
                     );
                 }
                 Err(err) => {
-                    if is_error(&err, "transaction underpriced") {
+                    if is_error(&err, "replacement transaction underpriced") {
                         assert!(!state.submitted_txs.is_empty());
                         warn!("Tried to send an underpriced transaction.");
                         /* goes back to confirm_transaction */
@@ -353,6 +353,7 @@ where
             self.configuration.time.sleep(sleep_time).await;
 
             // Were any of the transactions mined?
+            trace!("Were any of the transactions mined?");
             let receipt = self.get_mined_transaction(state).await?;
 
             match receipt {

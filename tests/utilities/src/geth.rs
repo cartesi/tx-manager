@@ -40,7 +40,8 @@ impl Geth {
         /// How long we will wait for geth to indicate that it is ready.
         const GETH_STARTUP_TIMEOUT: u64 = 10;
         loop {
-            if start + Duration::from_secs(GETH_STARTUP_TIMEOUT) <= Instant::now() {
+            let timeout = Duration::from_secs(GETH_STARTUP_TIMEOUT);
+            if start + timeout <= Instant::now() {
                 panic!("Timed out waiting for geth to start. Is geth installed?")
             }
 
@@ -63,39 +64,11 @@ impl Geth {
         }
     }
 
-    /*
-    pub fn coinbase(&self) -> String {
-        let output = Command::new(GETH)
-            .args(["attach", &self.url, "--exec", "eth.coinbase"])
-            .output()
-            .unwrap()
-            .stdout;
-        let s = std::str::from_utf8(&output).unwrap();
-        let hash: String = serde_json::from_str(s).unwrap();
-        hash
-    }
-    */
-
-    pub fn new_account(&self) -> String {
-        let output = self.new_command(&"personal.newAccount(\"\")".to_string());
-        let s = std::str::from_utf8(&output).unwrap();
-        serde_json::from_str(s).unwrap()
-    }
-
-    pub fn new_account_with_private_key(&self, private_key: &str) -> String {
-        let instruction = format!("personal.importRawKey(\"{}\", \"\")", private_key);
-        // println!("instruction: {:?}", instruction);
-        let output = self.new_command(&instruction);
-        let s = std::str::from_utf8(&output).unwrap();
-        serde_json::from_str(s).unwrap()
-    }
-
     pub fn check_balance_in_ethers(&self, hash: &str) -> u64 {
         let mut instruction: String = "web3.fromWei(".to_owned();
         instruction.push_str("eth.getBalance(\"");
         instruction.push_str(hash);
         instruction.push_str("\"), \"ether\")");
-        // println!("{:?}", instruction);
         let output = self.new_command(&instruction);
         let s = std::str::from_utf8(&output).unwrap();
         let n: f64 = serde_json::from_str(s).unwrap();

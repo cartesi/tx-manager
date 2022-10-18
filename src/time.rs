@@ -19,6 +19,6 @@ impl Time for DefaultTime {
     }
 
     fn elapsed(&self, start: Instant) -> Duration {
-        Duration::from_secs(start.elapsed().as_secs())
+        Duration::from_millis(start.elapsed().as_millis() as u64)
     }
 }
