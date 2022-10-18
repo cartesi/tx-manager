@@ -5,6 +5,7 @@ use tx_manager::{
     transaction::Priority,
 };
 
+/// Guarantees that from the second transaction onward the max fee will be underpriced.
 #[derive(Debug)]
 pub struct UnderpricedGasOracle {}
 
@@ -22,7 +23,6 @@ pub enum UnderpricedGasOracleError {}
 impl GasOracle for UnderpricedGasOracle {
     type Error = UnderpricedGasOracleError;
 
-    /// Guarantees that from the second transaction onward the max fee will be underpriced.
     async fn get_info<M: Middleware>(
         &self,
         _: Priority,

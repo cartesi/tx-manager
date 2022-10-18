@@ -38,6 +38,7 @@ pub fn setup_tracing() {
         .event_format(format)
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
+    // TODO: log to file
 }
 
 pub struct Account {
