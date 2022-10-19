@@ -10,50 +10,36 @@ use tx_manager::{
 
 use utilities::{Net, TestConfiguration, TEST_CONFIGURATION_PATH};
 
-const PROVIDER_HTTP_URL: &str = "https://goerli.infura.io/v3";
-
-/*
 #[tokio::test]
-async fn test_todo() {
-    let net = Net::new(
-        PROVIDER_HTTP_URL.to_string() + INFURA_API_KEY,
-        Chain::Goerli,
-        ACCOUNT1,
-    );
+async fn test_mainnet_goerli() {
+    test_testnet("mainnet/goerli".into(), Chain::Goerli).await;
+}
 
-    let balance1 = net.get_balance_in_gwei(ACCOUNT1).await;
-    let balance2 = net.get_balance_in_gwei(ACCOUNT2).await;
-
-    println!("Wallet 1 balance (in gwei): {:?}", balance1);
-    println!("Wallet 2 balance (in gwei): {:?}", balance2);
-
-    let (max_fee, max_priority_fee) = net.provider.estimate_eip1559_fees(None).await.unwrap();
-    println!("max_fee: {:?}", utilities::wei_to_gwei(max_fee));
-    println!(
-        "max_priority_fee: {:?}",
-        utilities::wei_to_gwei(max_priority_fee)
-    );
-
+#[tokio::test]
+async fn test_optimist_goerli() {
     todo!()
 }
-*/
 
 #[tokio::test]
-async fn test_goerli() {
+async fn test_arbitrum_goerli() {
+    todo!()
+}
+
+#[tokio::test]
+async fn test_polygon_goerli() {
+    todo!()
+}
+
+/// Sends 5 gwei from account1 to account2.
+async fn test_testnet(key: String, chain: Chain) {
     utilities::setup_tracing();
 
     let test_configuration = TestConfiguration::get(TEST_CONFIGURATION_PATH.into());
+    let provider_http_url = test_configuration.provider_http_url.get(&key).unwrap();
     let account1 = test_configuration.account1;
     let account2 = test_configuration.account2;
 
-    let net = Net::new(
-        format!(
-            "{}/{}",
-            PROVIDER_HTTP_URL, test_configuration.infura_api_key
-        ),
-        Chain::Goerli,
-        &account1,
-    );
+    let net = Net::new(provider_http_url.clone(), chain, &account1);
 
     let balance1_before = net.get_balance_in_gwei(&account1).await;
     let balance2_before = net.get_balance_in_gwei(&account2).await;

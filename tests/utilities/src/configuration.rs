@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use crate::Account;
 
@@ -7,7 +7,7 @@ pub const TEST_CONFIGURATION_PATH: &str = "tests/configuration.json";
 
 #[derive(Serialize, Deserialize)]
 pub struct Configuration {
-    pub infura_api_key: String,
+    pub provider_http_url: HashMap<String, String>,
     pub account1: Account,
     pub account2: Account,
 }
