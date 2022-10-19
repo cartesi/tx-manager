@@ -182,7 +182,10 @@ where
             configuration,
         };
 
-        trace!("Instantiating a new transaction manager => {:#?}", manager);
+        trace!(
+            "Forcing the instantiation of a new transaction manager => {:#?}",
+            manager
+        );
 
         trace!("Clearing DB state");
         manager.db.clear_state().await.map_err(Error::Database)?;

@@ -162,7 +162,13 @@ mod tests {
         let eip1559_gas_info_asap = unwrap_eip1559_gas_info(result);
         assert!(eip1559_gas_info_asap.max_priority_fee.is_none());
 
-        assert!(eip1559_gas_info_low.max_fee <= eip1559_gas_info_normal.max_fee);
+        // TODO: this is not always true...
+        assert!(
+            eip1559_gas_info_low.max_fee <= eip1559_gas_info_normal.max_fee,
+            "low.max_fee = {:?}, normal.max_fee = {:?}",
+            eip1559_gas_info_low.max_fee,
+            eip1559_gas_info_normal.max_fee
+        );
         assert!(eip1559_gas_info_normal.max_fee <= eip1559_gas_info_high.max_fee);
         assert!(eip1559_gas_info_high.max_fee <= eip1559_gas_info_asap.max_fee);
     }

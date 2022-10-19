@@ -13,3 +13,4 @@ serial_test = "0.8"
 tokio = { version = "1", features = ["fs", "macros"] }
 tracing = "0.1"
 thiserror = "1.0"
+hex = "0.4"

@@ -1,4 +1,7 @@
-use ethers::types::H160;
+use ethers::{
+    signers::{LocalWallet, Signer},
+    types::{H160, U256},
+};
 use tracing_subscriber::filter::EnvFilter;
 
 #[macro_export]
@@ -20,6 +23,14 @@ macro_rules! assert_err(
         }
     };
 );
+
+pub fn wei_to_gwei(wei: U256) -> u64 {
+    wei.as_u64() / (1e9 as u64)
+}
+
+pub fn gwei_to_wei(gwei: u64) -> U256 {
+    U256::from(gwei * (1e9 as u64))
+}
 
 pub fn setup_tracing() {
     // RUST_LOG="tx_manager::manager=trace"
@@ -52,12 +63,23 @@ impl From<Account> for H160 {
     }
 }
 
+impl From<Account> for LocalWallet {
+    fn from(account: Account) -> Self {
+        let wallet = account.private_key.parse::<LocalWallet>().unwrap();
+        assert_eq!(
+            "0x".to_string() + &hex::encode(wallet.address()),
+            account.address
+        );
+        wallet
+    }
+}
+
 pub const ACCOUNT1: Account = Account {
-    address: "0x63fac9201494f0bd17b9892b9fae4d52fe3bd377",
-    private_key: "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f",
+    address: "0x8bc95ac74684e81054f7cf0ac424aa6b2de3879b",
+    private_key: "2e624d316fa3f655efd4a162c844f532d7dc8a487aecc571dcce255474fab9b0",
 };
 
 pub const ACCOUNT2: Account = Account {
-    address: "0xf30e6e20be8474393f2f2bbd61a52143d851c19b",
-    private_key: "fda4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de88",
+    address: "0xcdccd122167e00be32e2a4f650094a4b745ce7c4",
+    private_key: "7b0a26b368f1bb6dd3200c57fe26bee3de48860e4abc84abcb7de026a6681123",
 };

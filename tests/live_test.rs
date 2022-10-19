@@ -1,87 +1,90 @@
-/*
-use ethers::{providers::Middleware, signers::Signer, types::Chain};
-use serial_test::serial;
-use std::fs::remove_file;
+use ethers::types::Chain;
+use std::{fs::remove_file, time::Duration};
 
 use tx_manager::{
     database::FileSystemDatabase,
-    gas_oracle::ETHGasStationOracle,
+    gas_oracle::DefaultGasOracle,
     manager::{Configuration, Manager},
     transaction::{Priority, Transaction, Value},
 };
 
-mod infra;
-use infra::Net;
+use utilities::{Net, ACCOUNT1, ACCOUNT2};
 
-const PRIVATE_KEY1: &str = "8da4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de8f";
-const PRIVATE_KEY2: &str = "fda4ef21b864d2cc526dbdb2a120bd2874c36c9d0a1fb7f8c63d7f7a8b41de88";
-// const ADDRESS1: &str = "0x63fac9201494f0bd17b9892b9fae4d52fe3bd377";
-// const ADDRESS2: &str = "0xf30e6e20be8474393f2f2bbd61a52143d851c19b";
+const INFURA_API_KEY: &str = ""; // TODO: read from file
+const PROVIDER_HTTP_URL: &str = "https://goerli.infura.io/v3/";
+
+/*
+#[tokio::test]
+async fn test_todo() {
+    let net = Net::new(
+        PROVIDER_HTTP_URL.to_string() + INFURA_API_KEY,
+        Chain::Goerli,
+        ACCOUNT1,
+    );
+
+    let balance1 = net.get_balance_in_gwei(ACCOUNT1).await;
+    let balance2 = net.get_balance_in_gwei(ACCOUNT2).await;
+
+    println!("Wallet 1 balance (in gwei): {:?}", balance1);
+    println!("Wallet 2 balance (in gwei): {:?}", balance2);
+
+    let (max_fee, max_priority_fee) = net.provider.estimate_eip1559_fees(None).await.unwrap();
+    println!("max_fee: {:?}", utilities::wei_to_gwei(max_fee));
+    println!(
+        "max_priority_fee: {:?}",
+        utilities::wei_to_gwei(max_priority_fee)
+    );
+
+    todo!()
+}
+*/
 
 #[tokio::test]
 async fn test_goerli() {
-    // setup_tracing(); TODO
+    utilities::setup_tracing();
 
-    let infura_api_key = "";
-    let provider_http_url = "https://goerli.infura.io/v3/".to_string() + infura_api_key;
-    let net = Net {
-        provider_http_url,
-        chain: Chain::Goerli,
-    };
+    let net = Net::new(
+        PROVIDER_HTTP_URL.to_string() + INFURA_API_KEY,
+        Chain::Goerli,
+        ACCOUNT1,
+    );
 
-    let wallet1 = net.create_wallet(PRIVATE_KEY1);
-    let wallet2 = net.create_wallet(PRIVATE_KEY2);
-
-    println!("Wallet 1: {:?}", wallet1);
-    println!("Wallet 2: {:?}", wallet2);
-
-    let provider = net.provider(&wallet1);
-
-    let balance1_before = provider.get_balance(wallet1.address(), None).await.unwrap();
-    let balance2_before = provider.get_balance(wallet2.address(), None).await.unwrap();
-
-    println!("[BEFORE] Wallet 1 balance: {:?}", balance1_before);
-    println!("[BEFORE] Wallet 2 balance: {:?}", balance2_before);
+    let balance1_before = net.get_balance_in_gwei(ACCOUNT1).await;
+    let balance2_before = net.get_balance_in_gwei(ACCOUNT2).await;
 
     let manager = {
         const DATABASE_PATH: &str = "./test_live_database.json";
         remove_file(DATABASE_PATH).unwrap_or(());
         let manager = Manager::new(
-            provider.clone(),
-            None as Option<ETHGasStationOracle>,
+            net.provider.clone(),
+            DefaultGasOracle::new(net.chain),
             FileSystemDatabase::new(DATABASE_PATH.into()),
             net.chain,
-            Configuration::default(),
+            Configuration::default().set_block_time(Duration::from_secs(10)),
         )
         .await;
         assert!(manager.is_ok());
         manager.unwrap().0
     };
 
+    let amount = 5;
     let transaction = Transaction {
-        from: wallet1.address(),
-        to: wallet2.address(),
-        value: Value::Number((10e12 as u64).into()),
+        from: ACCOUNT1.into(),
+        to: ACCOUNT2.into(),
+        value: Value::Number(utilities::gwei_to_wei(amount).into()),
         call_data: None,
     };
 
     let result = manager
-        .send_transaction(transaction, 1, Priority::Normal)
+        .send_transaction(transaction, 3, Priority::Normal)
         .await;
     assert!(result.is_ok(), "err: {}", result.err().unwrap());
 
-    let balance1_after = provider.get_balance(wallet1.address(), None).await.unwrap();
-    let balance2_after = provider.get_balance(wallet2.address(), None).await.unwrap();
+    let balance1_after = net.get_balance_in_gwei(ACCOUNT1).await;
+    let balance2_after = net.get_balance_in_gwei(ACCOUNT2).await;
+    let cost = balance2_after - balance2_before;
 
-    println!("[AFTER] Wallet 1 balance: {:?}", balance1_after);
-    println!("[AFTER] Wallet 2 balance: {:?}", balance2_after);
-    println!(
-        "Gas cost: {:?}",
-        balance2_after
-            .checked_sub(balance1_before)
-            .unwrap()
-            .checked_add(1000.into())
-            .unwrap()
-    );
+    assert!(balance1_after < balance1_before + amount);
+    assert!(balance2_after == balance2_before + amount);
+    assert!(cost > 0 && cost < 100);
 }
-*/

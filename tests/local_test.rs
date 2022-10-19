@@ -185,6 +185,7 @@ async fn test_error_already_known() {
         .send_transaction(transaction, 0, Priority::Normal)
         .await;
     assert!(result.is_ok());
+
     // TODO: check for "already known" in the logs.
 }
 
@@ -218,6 +219,7 @@ async fn test_error_transaction_underpriced() {
         .send_transaction(transaction, 0, Priority::Normal)
         .await;
     assert!(result.is_ok());
+
     // TODO: check for "transaction underpriced" in the logs.
 }
 
