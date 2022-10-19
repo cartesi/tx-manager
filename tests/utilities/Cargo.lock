@@ -3570,6 +3570,7 @@ dependencies = [
  "async-trait",
  "ethers",
  "hex",
+ "serde",
  "serde_json",
  "serial_test",
  "thiserror",

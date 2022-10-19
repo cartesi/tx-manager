@@ -19,7 +19,7 @@ use tx_manager::{
 use utilities::{
     assert_ok,
     mocks::gas_oracle::{ConstantGasOracle, UnderpricedGasOracle},
-    Geth, ACCOUNT1, ACCOUNT2,
+    Account, Geth,
 };
 
 const CHAIN: Chain = Chain::Dev;
@@ -33,8 +33,12 @@ ethers::contract::abigen!(TestContract, "./tests/contracts/bin/TestContract.abi"
 async fn test_ok() {
     utilities::setup_tracing();
 
-    let geth = init_geth(1).await;
+    let account1 = Account::random();
+    let account2 = Account::random();
+
+    let geth = init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
+        &account1,
         DefaultGasOracle::new(CHAIN),
         Configuration::default().set_block_time(Duration::from_secs(1)),
         &geth,
@@ -45,8 +49,8 @@ async fn test_ok() {
     let amount1 = 10u64; // in ethers
     let manager = {
         let transaction = Transaction {
-            from: ACCOUNT1.into(),
-            to: ACCOUNT2.into(),
+            from: account1.clone().into(),
+            to: account2.clone().into(),
             value: Value::Number(ethers::utils::parse_ether(amount1).unwrap()),
             call_data: None,
         };
@@ -57,9 +61,9 @@ async fn test_ok() {
 
         assert_ok!(result);
         let (manager, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(ACCOUNT1.address);
+        let account1_balance = geth.check_balance_in_ethers(&account1);
         assert!(account1_balance == FUNDS - amount1 - 1);
-        let account2_balance = geth.check_balance_in_ethers(ACCOUNT2.address);
+        let account2_balance = geth.check_balance_in_ethers(&account2);
         assert!(account2_balance == amount1);
         manager
     };
@@ -68,8 +72,8 @@ async fn test_ok() {
     let amount2 = 25u64; // in ethers
     {
         let transaction = Transaction {
-            from: ACCOUNT1.into(),
-            to: ACCOUNT2.into(),
+            from: account1.clone().into(),
+            to: account2.clone().into(),
             value: Value::Number(ethers::utils::parse_ether(amount2).unwrap()),
             call_data: None,
         };
@@ -80,9 +84,9 @@ async fn test_ok() {
 
         assert_ok!(result);
         let (_, _) = result.unwrap();
-        let account1_balance = geth.check_balance_in_ethers(ACCOUNT1.address);
+        let account1_balance = geth.check_balance_in_ethers(&account1);
         assert!(account1_balance == FUNDS - amount1 - amount2 - 1);
-        let account2_balance = geth.check_balance_in_ethers(ACCOUNT2.address);
+        let account2_balance = geth.check_balance_in_ethers(&account2);
         assert!(account2_balance == amount1 + amount2);
     }
 }
@@ -92,8 +96,12 @@ async fn test_ok() {
 async fn test_smart_contract() {
     utilities::setup_tracing();
 
-    let geth = init_geth(1).await;
+    let account1 = Account::random();
+    let account2 = Account::random();
+
+    let geth = init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
+        &account1,
         DefaultGasOracle::new(CHAIN),
         Configuration::default().set_block_time(Duration::from_secs(1)),
         &geth,
@@ -102,7 +110,7 @@ async fn test_smart_contract() {
 
     // Deploying the smart contract.
     let (contract_address, contract) = {
-        let signer = ACCOUNT1
+        let signer = account1
             .private_key
             .parse::<LocalWallet>()
             .unwrap()
@@ -137,7 +145,7 @@ async fn test_smart_contract() {
         let data = contract.increment().tx.data().unwrap().clone();
         println!("data: {}", data);
         let transaction = Transaction {
-            from: ACCOUNT1.into(),
+            from: account1.clone().into(),
             to: contract_address,
             value: Value::Nothing,
             call_data: Some(data),
@@ -164,8 +172,12 @@ async fn test_smart_contract() {
 async fn test_error_already_known() {
     utilities::setup_tracing();
 
-    let geth = &init_geth(1).await;
+    let account1 = Account::random();
+    let account2 = Account::random();
+
+    let geth = &init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
+        &account1,
         ConstantGasOracle::new(),
         Configuration::default()
             .set_transaction_mining_time(Duration::ZERO)
@@ -175,8 +187,8 @@ async fn test_error_already_known() {
     .await;
 
     let transaction = Transaction {
-        from: ACCOUNT1.into(),
-        to: ACCOUNT2.into(),
+        from: account1.clone().into(),
+        to: account2.clone().into(),
         value: Value::Number(ethers::utils::parse_ether(10).unwrap()),
         call_data: None,
     };
@@ -198,8 +210,12 @@ async fn test_error_already_known() {
 async fn test_error_transaction_underpriced() {
     utilities::setup_tracing();
 
-    let geth = init_geth(1).await;
+    let account1 = Account::random();
+    let account2 = Account::random();
+
+    let geth = init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
+        &account1,
         UnderpricedGasOracle::new(),
         Configuration::default()
             .set_transaction_mining_time(Duration::ZERO)
@@ -209,8 +225,8 @@ async fn test_error_transaction_underpriced() {
     .await;
 
     let transaction = Transaction {
-        from: ACCOUNT1.into(),
-        to: ACCOUNT2.into(),
+        from: account1.clone().into(),
+        to: account2.clone().into(),
         value: Value::Number(ethers::utils::parse_ether(10).unwrap()),
         call_data: None,
     };
@@ -227,21 +243,22 @@ async fn test_error_transaction_underpriced() {
 // Auxiliary
 // ------------------------------------------------------------------------------------------------
 
-/// Starts geth and gives FUNDS to ACCOUNT1.
-async fn init_geth(block_time: u16) -> Geth {
+/// Starts geth and gives FUNDS to account.
+async fn init_geth(account1: &Account, account2: &Account, block_time: u16) -> Geth {
     // Starting the geth node and creating two accounts.
     let geth = Geth::start(8545, block_time);
 
     // Giving funds and checking account balances.
-    geth.give_funds(ACCOUNT1.address, FUNDS).await;
-    assert_eq!(FUNDS, geth.check_balance_in_ethers(ACCOUNT1.address));
-    assert_eq!(0, geth.check_balance_in_ethers(ACCOUNT2.address));
+    geth.give_funds(account1, FUNDS).await;
+    assert_eq!(FUNDS, geth.check_balance_in_ethers(account1));
+    assert_eq!(0, geth.check_balance_in_ethers(account2));
 
     geth
 }
 
 // Instantiates the transaction manager.
 async fn init_manager<GO: GasOracle + Send + Sync>(
+    account: &Account,
     gas_oracle: GO,
     configuration: Configuration<DefaultTime>,
     geth: &Geth,
@@ -251,7 +268,7 @@ async fn init_manager<GO: GasOracle + Send + Sync>(
     FileSystemDatabase,
     DefaultTime,
 > {
-    let signer = ACCOUNT1
+    let signer = account
         .private_key
         .parse::<LocalWallet>()
         .unwrap()

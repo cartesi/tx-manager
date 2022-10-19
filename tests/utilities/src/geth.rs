@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::Account;
+
 /// The geth command.
 const GETH: &str = "geth";
 
@@ -64,10 +66,10 @@ impl Geth {
         }
     }
 
-    pub fn check_balance_in_ethers(&self, hash: &str) -> u64 {
+    pub fn check_balance_in_ethers(&self, account: &Account) -> u64 {
         let mut instruction: String = "web3.fromWei(".to_owned();
         instruction.push_str("eth.getBalance(\"");
-        instruction.push_str(hash);
+        instruction.push_str(&account.address);
         instruction.push_str("\"), \"ether\")");
         let output = self.new_command(&instruction);
         let s = std::str::from_utf8(&output).unwrap();
@@ -75,11 +77,11 @@ impl Geth {
         n as u64
     }
 
-    pub async fn give_funds(&self, to: &str, amount_in_ethers: u64) {
+    pub async fn give_funds(&self, to: &Account, amount_in_ethers: u64) {
         let balance = self.check_balance_in_ethers(to);
         let mut instruction: String = "personal.sendTransaction(".to_owned();
         instruction.push_str("{from: eth.coinbase, to: \"");
-        instruction.push_str(to);
+        instruction.push_str(&to.address);
         instruction.push_str("\", value: web3.toWei(");
         instruction.push_str(&amount_in_ethers.to_string());
         instruction.push_str(", \"ether\")}");

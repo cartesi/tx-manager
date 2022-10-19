@@ -1,7 +1,9 @@
 use ethers::{
+    core::rand::thread_rng,
     signers::{LocalWallet, Signer},
     types::{H160, U256},
 };
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::EnvFilter;
 
 #[macro_export]
@@ -52,9 +54,20 @@ pub fn setup_tracing() {
     // TODO: log to file
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Account {
-    pub address: &'static str,
-    pub private_key: &'static str,
+    pub address: String,
+    pub private_key: String,
+}
+
+impl Account {
+    pub fn random() -> Self {
+        let wallet = LocalWallet::new(&mut thread_rng());
+        Account {
+            address: hex::encode(wallet.address()),
+            private_key: hex::encode(wallet.signer().to_bytes()),
+        }
+    }
 }
 
 impl From<Account> for H160 {
@@ -73,13 +86,3 @@ impl From<Account> for LocalWallet {
         wallet
     }
 }
-
-pub const ACCOUNT1: Account = Account {
-    address: "0x8bc95ac74684e81054f7cf0ac424aa6b2de3879b",
-    private_key: "2e624d316fa3f655efd4a162c844f532d7dc8a487aecc571dcce255474fab9b0",
-};
-
-pub const ACCOUNT2: Account = Account {
-    address: "0xcdccd122167e00be32e2a4f650094a4b745ce7c4",
-    private_key: "7b0a26b368f1bb6dd3200c57fe26bee3de48860e4abc84abcb7de026a6681123",
-};

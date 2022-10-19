@@ -8,10 +8,9 @@ use tx_manager::{
     transaction::{Priority, Transaction, Value},
 };
 
-use utilities::{Net, ACCOUNT1, ACCOUNT2};
+use utilities::{Net, TestConfiguration, TEST_CONFIGURATION_PATH};
 
-const INFURA_API_KEY: &str = ""; // TODO: read from file
-const PROVIDER_HTTP_URL: &str = "https://goerli.infura.io/v3/";
+const PROVIDER_HTTP_URL: &str = "https://goerli.infura.io/v3";
 
 /*
 #[tokio::test]
@@ -43,14 +42,21 @@ async fn test_todo() {
 async fn test_goerli() {
     utilities::setup_tracing();
 
+    let test_configuration = TestConfiguration::get(TEST_CONFIGURATION_PATH.into());
+    let account1 = test_configuration.account1;
+    let account2 = test_configuration.account2;
+
     let net = Net::new(
-        PROVIDER_HTTP_URL.to_string() + INFURA_API_KEY,
+        format!(
+            "{}/{}",
+            PROVIDER_HTTP_URL, test_configuration.infura_api_key
+        ),
         Chain::Goerli,
-        ACCOUNT1,
+        &account1,
     );
 
-    let balance1_before = net.get_balance_in_gwei(ACCOUNT1).await;
-    let balance2_before = net.get_balance_in_gwei(ACCOUNT2).await;
+    let balance1_before = net.get_balance_in_gwei(&account1).await;
+    let balance2_before = net.get_balance_in_gwei(&account2).await;
 
     let manager = {
         const DATABASE_PATH: &str = "./test_live_database.json";
@@ -69,22 +75,22 @@ async fn test_goerli() {
 
     let amount = 5;
     let transaction = Transaction {
-        from: ACCOUNT1.into(),
-        to: ACCOUNT2.into(),
+        from: account1.clone().into(),
+        to: account2.clone().into(),
         value: Value::Number(utilities::gwei_to_wei(amount).into()),
         call_data: None,
     };
 
     let result = manager
-        .send_transaction(transaction, 3, Priority::Normal)
+        .send_transaction(transaction, 2, Priority::Normal)
         .await;
     assert!(result.is_ok(), "err: {}", result.err().unwrap());
 
-    let balance1_after = net.get_balance_in_gwei(ACCOUNT1).await;
-    let balance2_after = net.get_balance_in_gwei(ACCOUNT2).await;
+    let balance1_after = net.get_balance_in_gwei(&account1).await;
+    let balance2_after = net.get_balance_in_gwei(&account2).await;
     let cost = balance2_after - balance2_before;
 
     assert!(balance1_after < balance1_before + amount);
     assert!(balance2_after == balance2_before + amount);
-    assert!(cost > 0 && cost < 100);
+    assert!(cost > 0 && cost < 50);
 }

@@ -16,7 +16,7 @@ use utilities::{
         middleware::{MockMiddleware, MockMiddlewareError},
         time::MockTime,
     },
-    ACCOUNT1, ACCOUNT2,
+    Account,
 };
 
 type MockManagerError = tx_manager::Error<MockMiddleware, MockGasOracle, MockDatabase>;
@@ -28,9 +28,12 @@ async fn test_manager_new() {
     utilities::setup_tracing();
     let chain = Chain::Mainnet;
 
+    let account1 = Account::random();
+    let account2 = Account::random();
+
     let transaction = Transaction {
-        from: ACCOUNT1.address.parse().unwrap(),
-        to: ACCOUNT2.address.parse().unwrap(),
+        from: account1.into(),
+        to: account2.into(),
         value: Value::Number(U256::from(5u64)),
         call_data: None,
     };
