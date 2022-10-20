@@ -465,7 +465,9 @@ where
                 Ok(gas_oracle_info)
             }
             Err(err1) => {
-                warn!("Gas oracle has failed with error {:?}.", err1);
+                if err1 is not unit {
+                    warn!("Gas oracle has failed with error {:?}.", err1);
+                }
                 self.get_provider_gas_oracle_info()
                     .await
                     .map_err(|err2| Error::GasOracle(err1, err2))

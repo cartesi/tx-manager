@@ -13,7 +13,6 @@ pub trait GasOracle: Debug {
     async fn get_info<M: Middleware>(
         &self,
         priority: Priority,
-        provider: &M,
     ) -> Result<GasOracleInfo, Self::Error>;
 }
 

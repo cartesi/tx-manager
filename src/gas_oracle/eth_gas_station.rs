@@ -43,7 +43,6 @@ impl GasOracle for ETHGasStationOracle {
     async fn get_info<M: Middleware>(
         &self,
         priority: Priority,
-        _: &M,
     ) -> Result<GasOracleInfo, Self::Error> {
         let url = format!(
             "https://ethgasstation.info/api/ethgasAPI.json?api-key={}",
