@@ -4,18 +4,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::Account;
+use tx_manager::Chain;
+
+use crate::{Account, ProviderWrapper};
 
 /// The geth command.
 const GETH: &str = "geth";
 
 pub struct Geth {
-    pub url: String,
+    url: String,
     process: std::process::Child,
+    pub provider: ProviderWrapper,
 }
 
 impl Geth {
-    pub fn start(port: u16, block_time: u16) -> Geth {
+    pub fn start(port: u16, block_time: u16, chain: Chain, signer: &Account) -> Geth {
         let mut cmd = Command::new(GETH);
 
         // Using stderr for logs.
@@ -60,38 +63,29 @@ impl Geth {
 
         child.stderr = Some(reader.into_inner());
 
+        let url = format!("http://localhost:{}", port);
         Geth {
+            url: url.clone(),
             process: child,
-            url: format!("http://localhost:{}", port),
+            provider: ProviderWrapper::new(url, chain, &signer),
         }
     }
 
-    pub fn check_balance_in_ethers(&self, account: &Account) -> u64 {
-        let mut instruction: String = "web3.fromWei(".to_owned();
-        instruction.push_str("eth.getBalance(\"");
-        instruction.push_str(&account.address);
-        instruction.push_str("\"), \"ether\")");
-        let output = self.new_command(&instruction);
-        let s = std::str::from_utf8(&output).unwrap();
-        let n: f64 = serde_json::from_str(s).unwrap();
-        n as u64
-    }
-
-    pub async fn give_funds(&self, to: &Account, amount_in_ethers: u64) {
-        let balance = self.check_balance_in_ethers(to);
+    pub async fn give_funds(&self, to: &Account, gwei: u64) {
+        let balance = self.provider.get_balance_in_gwei(to).await;
         let mut instruction: String = "personal.sendTransaction(".to_owned();
         instruction.push_str("{from: eth.coinbase, to: \"");
         instruction.push_str(&to.address);
         instruction.push_str("\", value: web3.toWei(");
-        instruction.push_str(&amount_in_ethers.to_string());
-        instruction.push_str(", \"ether\")}");
+        instruction.push_str(&gwei.to_string());
+        instruction.push_str(", \"gwei\")}");
         instruction.push_str(", \"\")");
         let output = self.new_command(&instruction);
         let _ = std::str::from_utf8(&output).unwrap();
 
         // Waiting for the funds to be credited.
         loop {
-            if self.check_balance_in_ethers(to) == balance + amount_in_ethers {
+            if self.provider.get_balance_in_gwei(to).await == balance + gwei {
                 break;
             } else {
                 tokio::time::sleep(Duration::from_secs(1)).await;

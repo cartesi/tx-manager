@@ -8,7 +8,7 @@ use tx_manager::{
     Chain,
 };
 
-use utilities::{Net, TestConfiguration, TEST_CONFIGURATION_PATH};
+use utilities::{ProviderWrapper, TestConfiguration, TEST_CONFIGURATION_PATH};
 
 #[tokio::test]
 async fn test_ethereum() {
@@ -55,34 +55,26 @@ async fn test_testnet(key: String, chain: Chain) {
     let account1 = test_configuration.account1;
     let account2 = test_configuration.account2;
 
-    let net = Net::new(provider_http_url.clone(), chain, &account1);
-
-    let balance1_before = net.get_balance_in_gwei(&account1).await;
-    let balance2_before = net.get_balance_in_gwei(&account2).await;
-
-    println!(
-        "[TEST LOG] Account 1 balance (before) = {:?}",
-        balance1_before
-    );
-    println!(
-        "[TEST LOG] Account 2 balance (before) = {:?}",
-        balance2_before
-    );
+    let provider = ProviderWrapper::new(provider_http_url.clone(), chain, &account1);
 
     let manager = {
         let database_path: String = key + "testnet_test_database.json";
         remove_file(database_path.clone()).unwrap_or(());
         let manager = Manager::new(
-            net.provider.clone(),
+            provider.inner.clone(),
             DefaultGasOracle::new(),
             FileSystemDatabase::new(database_path),
-            net.chain,
+            provider.chain,
             Configuration::default().set_block_time(Duration::from_secs(10)),
         )
         .await;
         assert!(manager.is_ok());
         manager.unwrap().0
     };
+
+    let balance = provider
+        .get_balance(account1.clone(), account2.clone())
+        .await;
 
     let amount = 5;
     let transaction = Transaction {
@@ -97,22 +89,5 @@ async fn test_testnet(key: String, chain: Chain) {
         .await;
     assert!(result.is_ok(), "err: {}", result.err().unwrap());
 
-    let balance1_after = net.get_balance_in_gwei(&account1).await;
-    let balance2_after = net.get_balance_in_gwei(&account2).await;
-    let delta1 = (balance1_after as i64) - (balance1_before as i64);
-    let delta2 = (balance2_after as i64) - (balance2_before as i64);
-
-    println!(
-        "[TEST LOG] Account 1 balance (after) = {:?}",
-        balance1_after
-    );
-    println!(
-        "[TEST LOG] Account 2 balance (after) = {:?}",
-        balance2_after
-    );
-    println!("[TEST LOG] Delta 1 = {:?}", delta1);
-    println!("[TEST LOG] Delta 2 = {:?}", delta2);
-
-    assert!(balance1_after < balance1_before + amount);
-    assert!(balance2_after == balance2_before + amount);
+    provider.check_transaction_balance(balance, amount).await;
 }
