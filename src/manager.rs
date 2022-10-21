@@ -450,7 +450,7 @@ where
         &self,
         priority: Priority,
     ) -> Result<GasOracleInfo, Error<M, GO, DB>> {
-        match self.gas_oracle.get_info(priority, &self.provider).await {
+        match self.gas_oracle.get_info(priority).await {
             Ok(mut gas_oracle_info) => {
                 assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy());
 
@@ -465,9 +465,10 @@ where
                 Ok(gas_oracle_info)
             }
             Err(err1) => {
-                if err1 is not unit {
-                    warn!("Gas oracle has failed with error {:?}.", err1);
-                }
+                warn!(
+                    "Gas oracle has failed and/or is defaulting to the provider (error: {:?}).",
+                    err1
+                );
                 self.get_provider_gas_oracle_info()
                     .await
                     .map_err(|err2| Error::GasOracle(err1, err2))

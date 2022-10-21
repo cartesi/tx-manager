@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use core::time::Duration;
-use ethers::{providers::Middleware, types::U256};
+use ethers::types::U256;
 use std::error::Error;
 use std::fmt::Debug;
 
@@ -10,10 +10,7 @@ use crate::transaction::Priority;
 pub trait GasOracle: Debug {
     type Error: Error + Send + Sync;
 
-    async fn get_info<M: Middleware>(
-        &self,
-        priority: Priority,
-    ) -> Result<GasOracleInfo, Self::Error>;
+    async fn get_info(&self, priority: Priority) -> Result<GasOracleInfo, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy)]

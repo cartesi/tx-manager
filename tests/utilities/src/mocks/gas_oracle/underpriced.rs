@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use ethers::{providers::Middleware, types::U256};
+use ethers::types::U256;
 use tx_manager::{
     gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
     transaction::Priority,
@@ -23,11 +23,7 @@ pub enum UnderpricedGasOracleError {}
 impl GasOracle for UnderpricedGasOracle {
     type Error = UnderpricedGasOracleError;
 
-    async fn get_info<M: Middleware>(
-        &self,
-        _: Priority,
-        _: &M,
-    ) -> Result<GasOracleInfo, Self::Error> {
+    async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         // The first transaction has a max_fee of 2 gwei.
         let initial_max_fee = 2e9 as u32;
         let result = Ok(GasOracleInfo {

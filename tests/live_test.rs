@@ -49,7 +49,7 @@ async fn test_testnet(key: String, chain: Chain) {
         remove_file(DATABASE_PATH).unwrap_or(());
         let manager = Manager::new(
             net.provider.clone(),
-            DefaultGasOracle::new(net.chain),
+            DefaultGasOracle::new(),
             FileSystemDatabase::new(DATABASE_PATH.into()),
             net.chain,
             Configuration::default().set_block_time(Duration::from_secs(10)),

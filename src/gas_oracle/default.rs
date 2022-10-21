@@ -1,16 +1,17 @@
 use async_trait::async_trait;
-use ethers::providers::Middleware;
-
 use std::fmt::Debug;
 
-use ethers::types::Chain;
-
-use crate::gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo, LegacyGasInfo};
+use crate::gas_oracle::{GasOracle, GasOracleInfo};
 use crate::transaction::Priority;
 
-#[derive(Debug)]
-pub struct DefaultGasOracle {
+#[derive(Debug, thiserror::Error)]
+pub enum DefaultGasOracleError {
+    #[error("default gas oracle")]
+    Default,
 }
+
+#[derive(Debug)]
+pub struct DefaultGasOracle {}
 
 impl DefaultGasOracle {
     pub fn new() -> DefaultGasOracle {
@@ -20,12 +21,9 @@ impl DefaultGasOracle {
 
 #[async_trait]
 impl GasOracle for DefaultGasOracle {
-    type Error = ();
+    type Error = DefaultGasOracleError;
 
-    async fn get_info<M: Middleware>(
-        &self,
-        _: Priority
-    ) -> Result<GasOracleInfo, Self::Error> {
-        Err(())
+    async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
+        Err(DefaultGasOracleError::Default)
     }
 }

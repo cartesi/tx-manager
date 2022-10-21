@@ -1,6 +1,4 @@
 use async_trait::async_trait;
-use ethers::providers::Middleware;
-
 use tx_manager::gas_oracle::{GasOracle, GasOracleInfo};
 use tx_manager::transaction::Priority;
 
@@ -32,11 +30,7 @@ pub enum MockGasOracleError {
 impl GasOracle for MockGasOracle {
     type Error = MockGasOracleError;
 
-    async fn get_info<M: Middleware>(
-        &self,
-        _: Priority,
-        _: &M,
-    ) -> Result<GasOracleInfo, Self::Error> {
+    async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         unsafe { GLOBAL.gas_info_n += 1 };
         self.gas_oracle_info_output
             .ok_or(MockGasOracleError::GasInfo)

@@ -39,7 +39,7 @@ async fn test_ok() {
     let geth = init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
         &account1,
-        DefaultGasOracle::new(CHAIN),
+        DefaultGasOracle::new(),
         Configuration::default().set_block_time(Duration::from_secs(1)),
         &geth,
     )
@@ -102,7 +102,7 @@ async fn test_smart_contract() {
     let geth = init_geth(&account1, &account2, 1).await;
     let manager = init_manager(
         &account1,
-        DefaultGasOracle::new(CHAIN),
+        DefaultGasOracle::new(),
         Configuration::default().set_block_time(Duration::from_secs(1)),
         &geth,
     )
