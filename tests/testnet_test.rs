@@ -1,4 +1,3 @@
-use ethers::types::Chain;
 use std::{fs::remove_file, time::Duration};
 
 use tx_manager::{
@@ -6,28 +5,45 @@ use tx_manager::{
     gas_oracle::DefaultGasOracle,
     manager::{Configuration, Manager},
     transaction::{Priority, Transaction, Value},
+    Chain,
 };
 
 use utilities::{Net, TestConfiguration, TEST_CONFIGURATION_PATH};
 
 #[tokio::test]
-async fn test_mainnet_goerli() {
-    test_testnet("mainnet/goerli".into(), Chain::Goerli).await;
+async fn test_ethereum() {
+    let chain = Chain {
+        id: 5,
+        is_legacy: false,
+    };
+    test_testnet("ethereum".into(), chain).await;
 }
 
 #[tokio::test]
-async fn test_optimist_goerli() {
-    todo!()
+async fn test_polygon() {
+    let chain = Chain {
+        id: 80001,
+        is_legacy: false,
+    };
+    test_testnet("polygon".into(), chain).await;
 }
 
 #[tokio::test]
-async fn test_arbitrum_goerli() {
-    todo!()
+async fn test_optimism() {
+    let chain = Chain {
+        id: 420,
+        is_legacy: true,
+    };
+    test_testnet("optimism".into(), chain).await;
 }
 
 #[tokio::test]
-async fn test_polygon_goerli() {
-    todo!()
+async fn test_arbitrum() {
+    let chain = Chain {
+        id: 421613,
+        is_legacy: true,
+    };
+    test_testnet("arbitrum".into(), chain).await;
 }
 
 /// Sends 5 gwei from account1 to account2.
@@ -44,13 +60,22 @@ async fn test_testnet(key: String, chain: Chain) {
     let balance1_before = net.get_balance_in_gwei(&account1).await;
     let balance2_before = net.get_balance_in_gwei(&account2).await;
 
+    println!(
+        "[TEST LOG] Account 1 balance (before) = {:?}",
+        balance1_before
+    );
+    println!(
+        "[TEST LOG] Account 2 balance (before) = {:?}",
+        balance2_before
+    );
+
     let manager = {
-        const DATABASE_PATH: &str = "./test_live_database.json";
-        remove_file(DATABASE_PATH).unwrap_or(());
+        let database_path: String = key + "testnet_test_database.json";
+        remove_file(database_path.clone()).unwrap_or(());
         let manager = Manager::new(
             net.provider.clone(),
             DefaultGasOracle::new(),
-            FileSystemDatabase::new(DATABASE_PATH.into()),
+            FileSystemDatabase::new(database_path),
             net.chain,
             Configuration::default().set_block_time(Duration::from_secs(10)),
         )
@@ -74,9 +99,20 @@ async fn test_testnet(key: String, chain: Chain) {
 
     let balance1_after = net.get_balance_in_gwei(&account1).await;
     let balance2_after = net.get_balance_in_gwei(&account2).await;
-    let cost = balance2_after - balance2_before;
+    let delta1 = (balance1_after as i64) - (balance1_before as i64);
+    let delta2 = (balance2_after as i64) - (balance2_before as i64);
+
+    println!(
+        "[TEST LOG] Account 1 balance (after) = {:?}",
+        balance1_after
+    );
+    println!(
+        "[TEST LOG] Account 2 balance (after) = {:?}",
+        balance2_after
+    );
+    println!("[TEST LOG] Delta 1 = {:?}", delta1);
+    println!("[TEST LOG] Delta 2 = {:?}", delta2);
 
     assert!(balance1_after < balance1_before + amount);
     assert!(balance2_after == balance2_before + amount);
-    assert!(cost > 0 && cost < 50);
 }

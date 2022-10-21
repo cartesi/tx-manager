@@ -2,7 +2,7 @@ use async_recursion::async_recursion;
 use ethers::{
     providers::Middleware,
     types::{
-        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes, Chain,
+        transaction::eip2718::TypedTransaction, Address, BlockId, BlockNumber, Bytes,
         NameOrAddress, TransactionReceipt, H256, U256,
     },
 };
@@ -29,7 +29,7 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("database: {0}")]
     Database(DB::Error),
 
-    #[error("gas oracle: {0}")]
+    #[error("gas oracle: error1 = ({0}), error2 = ({1})")]
     GasOracle(GO::Error, M::Error),
 
     #[error("nonce too low (expected: {expected_nonce}, current: {current_nonce})")]
@@ -91,6 +91,12 @@ impl Default for Configuration<DefaultTime> {
             time: DefaultTime,
         }
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Chain {
+    pub id: u64,
+    pub is_legacy: bool,
 }
 
 #[derive(Debug)]
@@ -264,9 +270,10 @@ where
         let typed_transaction: TypedTransaction = {
             let mut typed_transaction = state
                 .tx_data
-                .to_typed_transaction(self.chain, gas_oracle_info.gas_info);
+                .to_typed_transaction(&self.chain, gas_oracle_info.gas_info);
 
             // Estimating the gas limit of the transaction.
+            // FIXME: "insufficient funds for transfer" is detected here!
             typed_transaction.set_gas(
                 self.provider
                     .estimate_gas(&typed_transaction)
@@ -405,11 +412,19 @@ where
     /// (EIP1559) from the provider and packs it inside GasOracleInfo.
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_provider_gas_oracle_info(&self) -> Result<GasOracleInfo, M::Error> {
-        let gas_info = if self.chain.is_legacy() {
+        let gas_info = if self.chain.is_legacy {
+            trace!("Calculating legacy gas price using the provider.");
             let gas_price = self.provider.get_gas_price().await?;
+            trace!("(gas_price = {:?})", gas_price);
             GasInfo::Legacy(LegacyGasInfo { gas_price })
         } else {
+            trace!("Estimating EIP1559 fees with the provider.");
             let (max_fee, max_priority_fee) = self.provider.estimate_eip1559_fees(None).await?;
+            trace!(
+                "(max_fee = {:?}, max_priority_fee = {:?})",
+                max_fee,
+                max_priority_fee
+            );
             GasInfo::EIP1559(EIP1559GasInfo {
                 max_fee,
                 max_priority_fee: Some(max_priority_fee),
@@ -452,7 +467,7 @@ where
     ) -> Result<GasOracleInfo, Error<M, GO, DB>> {
         match self.gas_oracle.get_info(priority).await {
             Ok(mut gas_oracle_info) => {
-                assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy());
+                assert_eq!(gas_oracle_info.gas_info.is_legacy(), self.chain.is_legacy);
 
                 if let GasInfo::EIP1559(mut eip1559_gas_info) = gas_oracle_info.gas_info {
                     if eip1559_gas_info.max_priority_fee.is_none() {
@@ -466,7 +481,7 @@ where
             }
             Err(err1) => {
                 warn!(
-                    "Gas oracle has failed and/or is defaulting to the provider (error: {:?}).",
+                    "Gas oracle has failed and/or is defaulting to the provider ({:?}).",
                     err1
                 );
                 self.get_provider_gas_oracle_info()

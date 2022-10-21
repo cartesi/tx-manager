@@ -1,12 +1,13 @@
 use ethers::core::types::Bytes;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
-    transaction::eip2718::TypedTransaction, Address, Chain, Eip1559TransactionRequest,
-    NameOrAddress, TransactionRequest, H256, U256, U64,
+    transaction::eip2718::TypedTransaction, Address, Eip1559TransactionRequest, NameOrAddress,
+    TransactionRequest, H256, U256,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::gas_oracle::GasInfo;
+use crate::Chain;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
@@ -53,14 +54,13 @@ pub struct StaticTxData {
 }
 
 impl StaticTxData {
-    pub fn to_typed_transaction(&self, chain: Chain, gas_info: GasInfo) -> TypedTransaction {
+    pub fn to_typed_transaction(&self, chain: &Chain, gas_info: GasInfo) -> TypedTransaction {
         let from = Some(self.transaction.from);
         let to = Some(NameOrAddress::Address(self.transaction.to));
         let value = Some(self.transaction.value.into());
         let data = self.transaction.call_data.clone();
         let nonce = Some(self.nonce);
-        let chain_id: u64 = chain.into();
-        let chain_id: Option<U64> = Some(chain_id.into());
+        let chain_id = Some(chain.id.into());
 
         match gas_info {
             GasInfo::Legacy(legacy_gas_info) => {

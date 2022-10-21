@@ -1,4 +1,4 @@
-use ethers::types::{Chain, TransactionReceipt, U256};
+use ethers::types::{TransactionReceipt, U256};
 use serial_test::serial;
 use std::time::Duration;
 
@@ -6,6 +6,7 @@ use tx_manager::{
     gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
     manager::{Configuration, Manager},
     transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction, Value},
+    Chain,
 };
 
 use utilities::{
@@ -22,11 +23,15 @@ use utilities::{
 type MockManagerError = tx_manager::Error<MockMiddleware, MockGasOracle, MockDatabase>;
 type MockManagerError2<GO> = tx_manager::Error<MockMiddleware, GO, MockDatabase>;
 
+const CHAIN: Chain = Chain {
+    id: 1337,
+    is_legacy: false,
+};
+
 #[tokio::test]
 #[serial]
 async fn test_manager_new() {
     utilities::setup_tracing();
-    let chain = Chain::Mainnet;
 
     let account1 = Account::random();
     let account2 = Account::random();
@@ -43,7 +48,7 @@ async fn test_manager_new() {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = Some(None);
         let result =
-            Manager::new(middleware, gas_oracle, db, chain, Configuration::default()).await;
+            Manager::new(middleware, gas_oracle, db, CHAIN, Configuration::default()).await;
         assert_ok!(result);
         let (_, transaction_receipt) = result.unwrap();
         assert_eq!(transaction_receipt, None);
@@ -55,7 +60,7 @@ async fn test_manager_new() {
         let (middleware, gas_oracle, mut db) = setup_dependencies();
         db.get_state_output = None;
         let result =
-            Manager::new(middleware, gas_oracle, db, chain, Configuration::default()).await;
+            Manager::new(middleware, gas_oracle, db, CHAIN, Configuration::default()).await;
         let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Get);
         assert_err!(result, expected_err);
     }
@@ -83,7 +88,7 @@ async fn test_manager_new() {
             middleware,
             gas_oracle,
             db,
-            chain,
+            CHAIN,
             Configuration {
                 transaction_mining_time: Duration::ZERO,
                 block_time: Duration::ZERO,
@@ -119,7 +124,7 @@ async fn test_manager_new() {
             middleware,
             gas_oracle,
             db,
-            chain,
+            CHAIN,
             Configuration {
                 transaction_mining_time: Duration::ZERO,
                 block_time: Duration::ZERO,
@@ -438,7 +443,7 @@ where
         middleware,
         gas_oracle,
         db,
-        Chain::Mainnet,
+        CHAIN,
         Configuration {
             transaction_mining_time: Duration::ZERO,
             block_time: Duration::ZERO,

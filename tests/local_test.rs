@@ -3,7 +3,6 @@ use ethers::{
     prelude::{k256::ecdsa::SigningKey, Wallet},
     providers::{Http, Provider},
     signers::{LocalWallet, Signer},
-    types::Chain,
 };
 use serial_test::serial;
 use std::{fs::remove_file, sync::Arc, time::Duration};
@@ -14,6 +13,7 @@ use tx_manager::{
     manager::{Configuration, Manager},
     time::DefaultTime,
     transaction::{Priority, Transaction, Value},
+    Chain,
 };
 
 use utilities::{
@@ -22,7 +22,10 @@ use utilities::{
     Account, Geth,
 };
 
-const CHAIN: Chain = Chain::Dev;
+const CHAIN: Chain = Chain {
+    id: 1337,
+    is_legacy: false,
+};
 const FUNDS: u64 = 100;
 const DATABASE_PATH: &str = "./test_database.json";
 
@@ -114,7 +117,7 @@ async fn test_smart_contract() {
             .private_key
             .parse::<LocalWallet>()
             .unwrap()
-            .with_chain_id(CHAIN);
+            .with_chain_id(CHAIN.id);
         let provider = Arc::new(SignerMiddleware::new(
             Provider::<Http>::try_from(geth.url.clone()).unwrap(),
             signer,
@@ -272,7 +275,7 @@ async fn init_manager<GO: GasOracle + Send + Sync>(
         .private_key
         .parse::<LocalWallet>()
         .unwrap()
-        .with_chain_id(CHAIN);
+        .with_chain_id(CHAIN.id);
     let provider = Provider::<Http>::try_from(geth.url.clone()).unwrap();
     let provider = SignerMiddleware::new(provider, signer);
     remove_file(DATABASE_PATH).unwrap_or(());

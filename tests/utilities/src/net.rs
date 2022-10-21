@@ -4,8 +4,10 @@ use ethers::{
     providers::Middleware,
     providers::{Http, Provider},
     signers::{LocalWallet, Signer, Wallet},
-    types::{Address, Chain},
+    types::Address,
 };
+
+use tx_manager::Chain;
 
 use crate::{utilities, Account};
 
@@ -18,7 +20,7 @@ impl Net {
     pub fn new(provider_http_url: String, chain: Chain, account: &Account) -> Net {
         let provider = Provider::<Http>::try_from(provider_http_url.clone()).unwrap();
         let wallet: LocalWallet = account.clone().into();
-        let provider = SignerMiddleware::new(provider, wallet.with_chain_id(chain));
+        let provider = SignerMiddleware::new(provider, wallet.with_chain_id(chain.id));
         Net { provider, chain }
     }
 
