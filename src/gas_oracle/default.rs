@@ -6,7 +6,7 @@ use crate::transaction::Priority;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DefaultGasOracleError {
-    #[error("default gas oracle")]
+    #[error("defaulting")]
     Default,
 }
 

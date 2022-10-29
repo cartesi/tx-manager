@@ -415,7 +415,7 @@ where
         let gas_info = if self.chain.is_legacy {
             trace!("Calculating legacy gas price using the provider.");
             let gas_price = self.provider.get_gas_price().await?;
-            trace!("(gas_price = {:?})", gas_price);
+            trace!("(gas_price = {:?} wei)", gas_price);
             GasInfo::Legacy(LegacyGasInfo { gas_price })
         } else {
             trace!("Estimating EIP1559 fees with the provider.");
@@ -481,8 +481,8 @@ where
             }
             Err(err1) => {
                 warn!(
-                    "Gas oracle has failed and/or is defaulting to the provider ({:?}).",
-                    err1
+                    "Gas oracle has failed and/or is defaulting to the provider ({}).",
+                    err1.to_string()
                 );
                 self.get_provider_gas_oracle_info()
                     .await

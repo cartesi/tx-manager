@@ -39,6 +39,7 @@ macro_rules! assert_err(
 // ProviderWrapper
 // ------------------------------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct ProviderWrapper {
     pub inner: SignerMiddleware<Provider<Http>, Wallet<SigningKey>>,
     pub chain: Chain,
