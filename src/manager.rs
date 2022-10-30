@@ -21,6 +21,10 @@ use crate::{database::Database, gas_oracle::EIP1559GasInfo};
 const TRANSACTION_MINING_TIME: Duration = Duration::from_secs(60);
 const BLOCK_TIME: Duration = Duration::from_secs(20);
 
+// ------------------------------------------------------------------------------------------------
+// Error
+// ------------------------------------------------------------------------------------------------
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("middleware: {0}")]
@@ -47,6 +51,10 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
     #[error("internal error: incompatible gas oracle ({0})")]
     IncompatibleGasOracle(&'static str),
 }
+
+// ------------------------------------------------------------------------------------------------
+// Configuration
+// ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Configuration<T: Time> {
@@ -93,11 +101,37 @@ impl Default for Configuration<DefaultTime> {
     }
 }
 
+// ------------------------------------------------------------------------------------------------
+// Chain
+// ------------------------------------------------------------------------------------------------
+
 #[derive(Copy, Clone, Debug)]
 pub struct Chain {
     pub id: u64,
     pub is_legacy: bool,
 }
+
+impl Chain {
+    /// For chains that implement the EIP1559.
+    pub fn new(id: u64) -> Chain {
+        Self {
+            id,
+            is_legacy: false,
+        }
+    }
+
+    /// For chains that do not implement the EIP1559.
+    pub fn legacy(id: u64) -> Chain {
+        Self {
+            id,
+            is_legacy: true,
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Manager
+// ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Manager<M: Middleware, GO: GasOracle, DB: Database, T: Time> {

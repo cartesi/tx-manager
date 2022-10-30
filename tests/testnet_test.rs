@@ -4,7 +4,6 @@ use ethers::{
     providers::Middleware,
     types::TransactionReceipt,
 };
-use serial_test::serial;
 use std::{fs::remove_file, time::Duration};
 
 use tx_manager::{
@@ -18,101 +17,33 @@ use tx_manager::{
 
 use utilities::{Account, ProviderWrapper, TestConfiguration, TEST_CONFIGURATION_PATH};
 
-#[tokio::test]
-#[serial]
-async fn test_ethereum_legacy() {
-    test_testnet_ok(
-        "ethereum",
-        "ok legacy",
-        Chain {
-            id: 5,
-            is_legacy: true,
-        },
-    )
-    .await;
-}
+// IMPORTANT: If one or more of the github tests fail because there are no
+// funds, send ethers to 0x8bc95ac74684e81054f7cf0ac424aa6b2de3879b in the
+// appropriate chain.
 
 #[tokio::test]
-#[serial]
-async fn test_ethereum_eip1559() {
-    test_testnet_ok(
-        "ethereum",
-        "ok EIP1559",
-        Chain {
-            id: 5,
-            is_legacy: false,
-        },
-    )
-    .await;
+async fn test_ethereum() {
+    test_testnet_ok("ethereum", Chain::new(5)).await;
+    test_testnet_ok("ethereum", Chain::legacy(5)).await;
 }
 
 #[tokio::test]
 async fn test_polygon() {
-    test_testnet_ok(
-        "polygon",
-        "ok EIP1559",
-        Chain {
-            id: 80001,
-            is_legacy: false,
-        },
-    )
-    .await;
+    test_testnet_ok("polygon", Chain::new(80001)).await;
 }
 
 #[tokio::test]
-async fn test_optimism_legacy() {
-    test_testnet_ok(
-        "optimism",
-        "ok EIP1559",
-        Chain {
-            id: 420,
-            is_legacy: true,
-        },
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn test_optimism_eip1559_fail() {
-    test_eip1559_fail(
-        "optimism",
-        "fail EIP1559",
-        Chain {
-            id: 420,
-            is_legacy: false,
-        },
-    )
-    .await;
+async fn test_optimism() {
+    test_eip1559_fail("optimism", Chain::new(420)).await;
+    test_testnet_ok("optimism", Chain::legacy(420)).await;
 }
 
 /// We skip this test because we don't get much ether from the Arbitrum faucet.
 #[tokio::test]
 #[ignore]
-async fn test_arbitrum_eip1559_fail() {
-    test_eip1559_fail(
-        "arbitrum",
-        "fail EIP1559",
-        Chain {
-            id: 421613,
-            is_legacy: true,
-        },
-    )
-    .await;
-}
-
-/// We skip this test because we don't get much ether from the Arbitrum faucet.
-#[tokio::test]
-#[ignore]
-async fn test_arbitrum_legacy() {
-    test_testnet_ok(
-        "arbitrum",
-        "ok legacy",
-        Chain {
-            id: 421613,
-            is_legacy: true,
-        },
-    )
-    .await;
+async fn test_arbitrum() {
+    test_testnet_ok("arbitrum", Chain::new(421613)).await;
+    test_testnet_ok("arbitrum", Chain::legacy(421613)).await;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -122,7 +53,7 @@ async fn test_arbitrum_legacy() {
 const AMOUNT: u64 = 5;
 
 /// Sends 5 gwei from account1 to account2.
-async fn test_testnet_ok(key: &str, description: &str, chain: Chain) {
+async fn test_testnet_ok(key: &str, chain: Chain) {
     utilities::setup_tracing();
 
     let test_configuration = TestConfiguration::get(TEST_CONFIGURATION_PATH.into());
@@ -131,7 +62,7 @@ async fn test_testnet_ok(key: &str, description: &str, chain: Chain) {
     let account2 = test_configuration.account2;
 
     let provider = ProviderWrapper::new(provider_http_url.clone(), chain, &account1);
-    let manager = create_manager(key, description, chain, provider.clone()).await;
+    let manager = create_manager(key, chain, provider.clone()).await;
 
     let balance = provider
         .get_balance(account1.clone(), account2.clone())
@@ -144,7 +75,7 @@ async fn test_testnet_ok(key: &str, description: &str, chain: Chain) {
 }
 
 /// Expected to fail with the "EIP-1559 not activated" error.
-async fn test_eip1559_fail(key: &str, description: &str, chain: Chain) {
+async fn test_eip1559_fail(key: &str, chain: Chain) {
     utilities::setup_tracing();
 
     let test_configuration = TestConfiguration::get(TEST_CONFIGURATION_PATH.into());
@@ -153,7 +84,11 @@ async fn test_eip1559_fail(key: &str, description: &str, chain: Chain) {
     let account2 = test_configuration.account2;
 
     let provider = ProviderWrapper::new(provider_http_url.clone(), chain, &account1);
-    let manager = create_manager(key, description, chain, provider.clone()).await;
+    let manager = create_manager(key, chain, provider.clone()).await;
+
+    provider
+        .get_balance(account1.clone(), account2.clone())
+        .await;
 
     let result = send_transaction(manager, account1, account2).await;
     assert!(result.is_err());
@@ -167,7 +102,6 @@ async fn test_eip1559_fail(key: &str, description: &str, chain: Chain) {
 
 async fn create_manager(
     key: &str,
-    description: &str,
     chain: Chain,
     provider: ProviderWrapper,
 ) -> Manager<
@@ -176,11 +110,7 @@ async fn create_manager(
     FileSystemDatabase,
     tx_manager::time::DefaultTime,
 > {
-    let database_path = format!(
-        "{}_{}_test_database.json",
-        key,
-        description.replace(" ", "_")
-    );
+    let database_path = format!("{}_test_database.json", key,);
     remove_file(database_path.clone()).unwrap_or(());
     let manager = Manager::new(
         provider.inner.clone(),
@@ -241,7 +171,7 @@ impl GasOracle for TestnetGasOracle {
 
     async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         if self.is_legacy {
-            // The provider's gas oracle simply returns the base fee of the latest block. We
+            // The provider's gas oracle returns the base fee of the latest block. We
             // multiply it by two to avoid "max fee per gas less than block base
             // fee" errors.
             let gas_price = self.provider.inner.get_gas_price().await.unwrap();

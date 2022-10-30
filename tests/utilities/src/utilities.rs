@@ -106,7 +106,7 @@ impl ProviderWrapper {
         println!("[TEST LOG] Delta 1 = {:?}", delta1);
         println!("[TEST LOG] Delta 2 = {:?}", delta2);
 
-        assert!(account1_after < balance.account1_before - amount); // weak assertion
+        assert!(account1_after <= balance.account1_before - amount); // weak assertion
         assert!(account2_after == balance.account2_before + amount);
     }
 }
