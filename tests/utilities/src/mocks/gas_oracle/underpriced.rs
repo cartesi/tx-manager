@@ -5,7 +5,8 @@ use tx_manager::{
     transaction::Priority,
 };
 
-/// Guarantees that from the second transaction onward the max fee will be underpriced.
+/// Guarantees that from the second transaction onward the max fee will be
+/// underpriced.
 #[derive(Debug)]
 pub struct UnderpricedGasOracle {}
 
