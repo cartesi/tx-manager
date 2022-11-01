@@ -163,19 +163,9 @@ pub fn gwei_to_wei(gwei: u64) -> U256 {
 
 pub fn setup_tracing() {
     // RUST_LOG="tx_manager::manager=trace"
-    let format = tracing_subscriber::fmt::format()
+    let _ = tracing_subscriber::FmtSubscriber::builder()
+        .compact()
         .without_time()
-        .with_target(false)
-        .with_level(false)
-        .with_thread_ids(false)
-        .with_thread_names(false)
-        .with_file(false)
-        .with_line_number(false)
-        .with_source_location(false)
-        .compact();
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .event_format(format)
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
     // TODO: log to file

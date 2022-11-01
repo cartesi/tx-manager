@@ -26,30 +26,30 @@ impl GasOracle for UnderpricedGasOracle {
 
     async fn get_info(&self, _: Priority) -> Result<GasOracleInfo, Self::Error> {
         // The first transaction has a max_fee of 2 gwei.
-        let initial_max_fee = 2e9 as u32;
+        // Other transactions have a max_fee of 1 gwei.
+        let max_fee = U256::from(if unsafe { GLOBAL.flag } { 2e9 } else { 1e9 } as u32);
         let result = Ok(GasOracleInfo {
             gas_info: GasInfo::EIP1559(EIP1559GasInfo {
-                // The nth transaction has a max_fee of 2/n gwei.
-                max_fee: U256::from(initial_max_fee / unsafe { GLOBAL.n }),
+                max_fee,
                 max_priority_fee: None,
             }),
             mining_time: None,
             block_time: None,
         });
-        unsafe { GLOBAL.n += 1 };
+        unsafe { GLOBAL.flag = false };
         result
     }
 }
 
 pub struct Global {
-    pub n: u32,
+    pub flag: bool,
 }
 
 static mut GLOBAL: Global = Global::default();
 
 impl Global {
     const fn default() -> Global {
-        Global { n: 1 }
+        Global { flag: true }
     }
 
     fn setup() {

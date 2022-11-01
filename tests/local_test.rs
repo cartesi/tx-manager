@@ -171,7 +171,7 @@ async fn test_error_already_known() {
         ConstantGasOracle::new(),
         Configuration::default()
             .set_transaction_mining_time(Duration::ZERO)
-            .set_block_time(Duration::from_millis(900)),
+            .set_block_time(Duration::from_millis(800)),
     )
     .await;
 
@@ -191,7 +191,7 @@ async fn test_error_already_known() {
     let result = manager
         .send_transaction(transaction, 0, Priority::Normal)
         .await;
-    assert!(result.is_ok(), "{:?}", result.err().unwrap());
+    assert_ok!(result);
 
     geth.provider
         .check_transaction_balance(balance, amount)
@@ -214,7 +214,7 @@ async fn test_error_transaction_underpriced() {
         UnderpricedGasOracle::new(),
         Configuration::default()
             .set_transaction_mining_time(Duration::ZERO)
-            .set_block_time(Duration::from_millis(900)),
+            .set_block_time(Duration::from_millis(800)),
     )
     .await;
 
@@ -234,7 +234,7 @@ async fn test_error_transaction_underpriced() {
     let result = manager
         .send_transaction(transaction, 0, Priority::Normal)
         .await;
-    assert!(result.is_ok());
+    assert_ok!(result);
 
     geth.provider
         .check_transaction_balance(balance, amount)
