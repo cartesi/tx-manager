@@ -6,6 +6,14 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_REGISTRIES_CARTESI_INDEX: ${{ secrets.CARGO_REGISTRIES_CARTESI_INDEX }}
   RUST_LOG: "tx_manager::manager=trace"
+  ETHEREUM_URL: ${{ secrets.ETHEREUM_URL }}
+  ARBITRUM_URL: ${{ secrets.ARBITRUM_URL }}
+  OPTIMISM_URL: ${{ secrets.OPTIMISM_URL }}
+  POLYGON_URL: ${{ secrets.POLYGON_URL }}
+  ACCOUNT1_ADDRESS: ${{ secrets.ACCOUNT1_ADDRESS }}
+  ACCOUNT1_PRIVATE_KEY: ${{ secrets.ACCOUNT1_PRIVATE_KEY }}
+  ACCOUNT2_ADDRESS: ${{ secrets.ACCOUNT2_ADDRESS }}
+  ACCOUNT2_PRIVATE_KEY: ${{ secrets.ACCOUNT2_PRIVATE_KEY }}
 
 jobs:
   build:
