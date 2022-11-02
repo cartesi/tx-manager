@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tx_manager::time::Time;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MockTime;
 
 #[async_trait]

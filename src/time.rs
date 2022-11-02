@@ -3,13 +3,13 @@ use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
 #[async_trait]
-pub trait Time: Debug {
+pub trait Time: Clone + Debug {
     async fn sleep(&self, duration: Duration);
 
     fn elapsed(&self, start: Instant) -> Duration;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DefaultTime;
 
 #[async_trait]

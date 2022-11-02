@@ -56,7 +56,7 @@ pub enum Error<M: Middleware, GO: GasOracle, DB: Database> {
 // Configuration
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Configuration<T: Time> {
     /// Time it takes for a transaction to be mined by a block after being sent
     /// to the transaction pool.
