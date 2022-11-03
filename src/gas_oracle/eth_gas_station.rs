@@ -23,7 +23,7 @@ pub enum ETHGasStationError {
     ParseResponse(serde_json::Error),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ETHGasStationOracle {
     api_key: String,
 }

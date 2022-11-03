@@ -5,7 +5,7 @@ use tx_manager::{
     transaction::Priority,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IncrementingGasOracle {}
 
 impl IncrementingGasOracle {

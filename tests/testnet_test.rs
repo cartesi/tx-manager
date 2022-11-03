@@ -153,7 +153,7 @@ where
 // TestnetGasOracle
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct TestnetGasOracle {
     provider: ProviderWrapper,
     is_legacy: bool,

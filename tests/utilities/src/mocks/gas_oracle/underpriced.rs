@@ -7,7 +7,7 @@ use tx_manager::{
 
 /// Guarantees that from the second transaction onward the max fee will be
 /// underpriced.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UnderpricedGasOracle {}
 
 impl UnderpricedGasOracle {

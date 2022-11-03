@@ -6,7 +6,7 @@ use tx_manager::{
 };
 
 /// Always returns a 2 gwei max fee and 1 gwei max priority fee.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConstantGasOracle {}
 
 impl ConstantGasOracle {

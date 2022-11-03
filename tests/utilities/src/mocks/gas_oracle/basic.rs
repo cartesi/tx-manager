@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tx_manager::gas_oracle::{GasOracle, GasOracleInfo};
 use tx_manager::transaction::Priority;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MockGasOracle {
     pub gas_oracle_info_output: Option<GasOracleInfo>,
 }

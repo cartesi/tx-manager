@@ -13,7 +13,7 @@ pub use default::{DefaultGasOracle, DefaultGasOracleError};
 pub use eth_gas_station::{ETHGasStationError, ETHGasStationOracle};
 
 #[async_trait]
-pub trait GasOracle: Debug {
+pub trait GasOracle: Clone + Debug {
     type Error: Error + Send + Sync;
 
     async fn get_info(&self, priority: Priority) -> Result<GasOracleInfo, Self::Error>;
