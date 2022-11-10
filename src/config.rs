@@ -3,6 +3,8 @@ use snafu::{ResultExt, Snafu};
 use std::fs;
 use structopt::StructOpt;
 
+use crate::Chain;
+
 #[derive(StructOpt, Clone)]
 #[structopt(name = "tx_config", about = "Configuration for transaction manager")]
 pub struct TxEnvCLIConfig {
@@ -26,6 +28,10 @@ pub struct TxEnvCLIConfig {
     #[structopt(long, env)]
     pub tx_chain_id: Option<u64>,
 
+    /// EIP1559 flag
+    #[structopt(long, env)]
+    pub tx_chain_non_eip1559: Option<bool>,
+
     /// Path to tx manager database file
     #[structopt(long, env)]
     pub tx_database_path: Option<String>,
@@ -45,6 +51,7 @@ pub struct TxManagerConfig {
     pub provider_http_endpoint: String,
     pub wallet: LocalWallet,
     pub chain_id: u64,
+    pub chain_non_eip1559: bool,
     pub database_path: String,
     pub gas_oracle_api_key: String,
 }
@@ -55,6 +62,7 @@ impl std::fmt::Debug for TxManagerConfig {
             .field("default_confirmations", &self.default_confirmations)
             .field("provider_http_endpoint", &self.provider_http_endpoint)
             .field("chain_id", &self.chain_id)
+            .field("chain_non_eip1559", &self.chain_non_eip1559)
             .field("wallet_address", &self.wallet.address())
             .field("database_path", &self.database_path)
             .field("gas_oracle_api_key", &self.gas_oracle_api_key)
@@ -66,6 +74,9 @@ impl std::fmt::Debug for TxManagerConfig {
 pub enum Error {
     #[snafu(display("Configuration missing chain_id"))]
     MissingChainId {},
+
+    #[snafu(display("Configuration missing chain_non_eip1559"))]
+    MissingChainNonEIP1559 {},
 
     #[snafu(display("Configuration missing mnemonic"))]
     MissingMnemonic {},
@@ -111,6 +122,11 @@ impl TxManagerConfig {
             .ok_or(snafu::NoneError)
             .context(MissingChainIdSnafu)?;
 
+        let chain_non_eip1559 = env_cli_config
+            .tx_chain_non_eip1559
+            .ok_or(snafu::NoneError)
+            .context(MissingChainNonEIP1559Snafu)?;
+
         let wallet = {
             let mnemonic: String = if let Some(m) = env_cli_config.tx_mnemonic {
                 m
@@ -152,8 +168,18 @@ impl TxManagerConfig {
             provider_http_endpoint,
             wallet,
             chain_id,
+            chain_non_eip1559,
             database_path,
             gas_oracle_api_key,
         })
+    }
+}
+
+impl From<&TxManagerConfig> for Chain {
+    fn from(config: &TxManagerConfig) -> Self {
+        Self {
+            id: config.chain_id,
+            is_legacy: config.chain_non_eip1559,
+        }
     }
 }
