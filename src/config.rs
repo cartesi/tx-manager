@@ -1,5 +1,4 @@
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, WalletError};
-use snafu::{ResultExt, Snafu};
 use std::fs;
 use structopt::StructOpt;
 
@@ -30,7 +29,7 @@ pub struct TxEnvCLIConfig {
 
     /// EIP1559 flag
     #[structopt(long, env)]
-    pub tx_chain_non_eip1559: Option<bool>,
+    pub tx_chain_is_legacy: Option<bool>,
 
     /// Path to tx manager database file
     #[structopt(long, env)]
@@ -51,7 +50,7 @@ pub struct TxManagerConfig {
     pub provider_http_endpoint: String,
     pub wallet: LocalWallet,
     pub chain_id: u64,
-    pub chain_non_eip1559: bool,
+    pub chain_is_legacy: bool,
     pub database_path: String,
     pub gas_oracle_api_key: String,
 }
@@ -62,7 +61,7 @@ impl std::fmt::Debug for TxManagerConfig {
             .field("default_confirmations", &self.default_confirmations)
             .field("provider_http_endpoint", &self.provider_http_endpoint)
             .field("chain_id", &self.chain_id)
-            .field("chain_non_eip1559", &self.chain_non_eip1559)
+            .field("chain_is_legacy", &self.chain_is_legacy)
             .field("wallet_address", &self.wallet.address())
             .field("database_path", &self.database_path)
             .field("gas_oracle_api_key", &self.gas_oracle_api_key)
@@ -70,28 +69,28 @@ impl std::fmt::Debug for TxManagerConfig {
     }
 }
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[snafu(display("Configuration missing chain_id"))]
-    MissingChainId {},
+    #[error("Configuration missing chain_id")]
+    MissingChainId,
 
-    #[snafu(display("Configuration missing chain_non_eip1559"))]
-    MissingChainNonEIP1559 {},
+    #[error("Configuration missing chain_is_legacy")]
+    MissingChainIsLegacy,
 
-    #[snafu(display("Configuration missing mnemonic"))]
-    MissingMnemonic {},
+    #[error("Configuration missing mnemonic")]
+    MissingMnemonic,
 
-    #[snafu(display("Could not read mnemonic file at path `{}`: {}", path, source))]
+    #[error("Could not read mnemonic file at path `{}`: {}", path, source)]
     MnemonicFileReadError {
         path: String,
         source: std::io::Error,
     },
 
-    #[snafu(display("Mnemonic index malformed: {:?}", source))]
+    #[error("Mnemonic index malformed: {:?}", source)]
     MnemonicIndexMalformed { source: WalletError },
 
-    #[snafu(display("Mnemonic malformed: {:?}", source))]
-    MnemonicMalformed { source: WalletError },
+    #[error("Mnemonic malformed: {0}")]
+    MnemonicMalformed(WalletError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -117,15 +116,11 @@ impl TxManagerConfig {
             .tx_provider_http_endpoint
             .unwrap_or_else(|| DEFAULT_HTTP_ENDPOINT.to_string());
 
-        let chain_id = env_cli_config
-            .tx_chain_id
-            .ok_or(snafu::NoneError)
-            .context(MissingChainIdSnafu)?;
+        let chain_id = env_cli_config.tx_chain_id.ok_or(Error::MissingChainId)?;
 
-        let chain_non_eip1559 = env_cli_config
-            .tx_chain_non_eip1559
-            .ok_or(snafu::NoneError)
-            .context(MissingChainNonEIP1559Snafu)?;
+        let chain_is_legacy = env_cli_config
+            .tx_chain_is_legacy
+            .ok_or(Error::MissingChainIsLegacy)?;
 
         let wallet = {
             let mnemonic: String = if let Some(m) = env_cli_config.tx_mnemonic {
@@ -133,11 +128,10 @@ impl TxManagerConfig {
             } else {
                 let path = env_cli_config
                     .tx_mnemonic_file
-                    .ok_or(snafu::NoneError)
-                    .context(MissingMnemonicSnafu)?;
+                    .ok_or(Error::MissingMnemonic)?;
 
-                let contents =
-                    fs::read_to_string(path.clone()).context(MnemonicFileReadSnafu { path })?;
+                let contents = fs::read_to_string(path.clone())
+                    .map_err(|source| Error::MnemonicFileReadError { path, source })?;
 
                 contents.trim().to_string()
             };
@@ -149,9 +143,9 @@ impl TxManagerConfig {
             MnemonicBuilder::<English>::default()
                 .phrase(mnemonic.as_str())
                 .index(index)
-                .context(MnemonicMalformedSnafu)?
+                .map_err(Error::MnemonicMalformed)?
                 .build()
-                .context(MnemonicMalformedSnafu)?
+                .map_err(Error::MnemonicMalformed)?
                 .with_chain_id(chain_id)
         };
 
@@ -168,7 +162,7 @@ impl TxManagerConfig {
             provider_http_endpoint,
             wallet,
             chain_id,
-            chain_non_eip1559,
+            chain_is_legacy,
             database_path,
             gas_oracle_api_key,
         })
@@ -179,7 +173,7 @@ impl From<&TxManagerConfig> for Chain {
     fn from(config: &TxManagerConfig) -> Self {
         Self {
             id: config.chain_id,
-            is_legacy: config.chain_non_eip1559,
+            is_legacy: config.chain_is_legacy,
         }
     }
 }
