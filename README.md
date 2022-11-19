@@ -1,137 +1,112 @@
 # Transaction Manager
 
+The `tx-manager` is a rust library for robustly submitting transactions to the blockchain.
 
-At Cartesi, we run into issues related to a lack of mature tooling every day.
-Blockchain is a nascent technology, and the software stack is still in its early days and evolving at a fast pace.
-Writing _ad-hoc_ solutions to these issues is not scalable.
-A better approach is building abstractions on top of established lower-level solutions in a way that they can be reused.
+TODO: It is synchronous.
 
-It must be noted that these lower-level solutions are open source, developed by the community.
-In the same way we’ve benefited from those, we are publishing our own in-house tools that may benefit the community.
+## Usage example
+_The code for this example can be consulted at ???_
 
-Previously, we talked about [reading the state of smart contracts with the State Fold](https://medium.com/cartesi/state-fold-cfe5f4d79639),
-the first step in interacting with the blockchain.
-The Transaction Manager is the next step.
-This tool addresses the issue of sending transactions to the blockchain.
-It is, in many ways, the dual of the State Fold: the State Fold reads the state of the ledger, and the Transaction Manager writes to the state of the ledger.
+To start sending transactions you must first instantiate a `TransactionManager` object by calling its
+constructor.
 
-## Background
+```
+TransactionManager::new(provider, gas_oracle, database, chain, configuration)
+```
 
-Transactions move the blockchain state forward.
-They are the way users outside the blockchain enact state changes to the ledger.
-Common types of transactions include transferring Eether to other addresses, invoking smart contracts’ methods (such as an ERC20 token transfer) and instantiating smart contracts.
-In the context of Cartesi rollups, examples of transactions are adding inputs to the rollups, making state hash claims, and interacting with fraud-proof disputes.
+The `chain` parameter is a `Chain` object that holds a chain ID and a boolean indicating whether or
+not the target blockchain implements the EIP-1559. We can instantiate it by calling the `Chain::new`
+function (or `Chain::legacy` for chains that don't implement the EIP-1559).
 
-Transactions are sent by user accounts, also known as externally owned accounts.
-Transactions are first signed by the user, using the account’s private key, and then broadcasted to the network to be included in the ledger at a future block.
-They contain information such as the “to” address (which can be another user account or a smart contract), the payload (containing data we want to send to smart contracts), gas price, and the value we want to transfer in ethers.
+```
+let chain = Chain::new(1337);
+```
 
-From the miners’ side of things, transactions are first added to what’s called the transaction pool.
-The transaction pool is a structure local to each Ethereum node.
-It holds the set of transactions miners draw from when they are creating new blocks.
-Think of them as a queue of transactions to be included in the blockchain.
-However, as this queue is local to each node, its ordering is decided by each individual miner.
+The `provider` is an object that implements the `ethers::providers::Middleware` trait.
 
-Generally speaking, miners first choose the transactions that will yield the highest profit: the order in which the transactions are added to the blockchain does not correspond to the ordering in which they were added to the pool.
-A reasonable heuristic for the profitability of adding transactions to the blockchain is the transaction’s gas price.
-As such, transactions with a higher gas price are usually added to the ledger first.
+In our examples, we will send transactions to a local geth node running on develop mode, hence, we
+can instantiate a new provider as follows:
 
-Transactions sent to the blockchain from a user account must be uniquely numbered, in ascending order, without gaps.
-This numbering is called the _nonce_ and is part of the transaction.
-Transactions with duplicated nonces are mutually exclusive.
-If the transaction pool contains two transactions with the same nonce, the miner can only include one of them to the blockchain (generally the one with the higher gas price).
+```
+let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
+```
 
-In practice, when we want to send a transaction, we do it through Ethereum’s JSON-RPC API, which is usually wrapped in some high-level library like `web3.js`.
-This library communicates with a remote provider, which we must specify before using it.
-Trust in this provider is imperative: a malicious provider could simply ignore our requests and refuse to broadcast our transactions.
-However, it cannot forge or modify our transactions: the cryptographic signature makes sure of that.
+The provider is responsible for signing the transactions we will be sending, therefore, we wrap it
+using a signer middleware.
 
-Since the provider must communicate with the Ethereum network, it must run an Ethereum node.
-There are generally two ways of setting this provider up.
-The first one is doing it ourselves.
-We choose an implementation of the Ethereum protocol, such as Geth or Parity, and run it in some machine.
-This setup is not trivial.
-The second way is delegating this to some external provider, such as Infura or Alchemy.
+```
+let wallet = LocalWallet::new(&mut thread_rng()).with_chain_id(chain.id);
+let provider = SignerMiddleware::new(provider, wallet);
+```
 
-# Sending Transactions
+The `gas_oracle` and `database` parameters are dependencies injected into the transaction manager
+to, respectivelly, deal with gas prices and guarantee robustness. The `configuration` is used for
+for fine tuning waiting times internally. We will discuss them in length in the next sections but,
+for now, we will use their default provided implementations.
 
-Making sure a transaction gets added to the blockchain is easier said than done.
-There are multiple pitfalls and obstacles to managing transactions, which must be addressed if we wish to create a robust application.
+```
+let gas_oracle = DefaultGasOracle::new();
+let database = FileSystemDatabase::new("database.json".to_string());
+let configuration = Configuration::default();
+```
+
+We can, then, instantiate the transaction manager:
+
+```
+let (manager, receipt) =
+    TransactionManager::new(provider, gas_oracle, database, chain, configuration)
+        .await
+        .unwrap();
+
+assert!(receipt.is_none());
+```
+
+Note that the `new` function is asynchronous and returns both a transaction manager and a
+`Option<ethers::types::TransactionReceipt>`.
+We designed the transaction manager to be robust.
+In case the manager is interrupted while sending a transaction (a hardware crash, for example),
+it will try to confirm that transaction during its next instantiation, thus, the possible receipt
+and the need for `async`.
+
+With a manager in hands we can send a transaction by calling the aptly named `send_transaction`
+method.
+
+```
+pub async fn send_transaction(
+    mut self,
+    transaction: Transaction,
+    confirmations: usize,
+    priority: Priority,
+) -> Result<(Self, TransactionReceipt), Error<M, GO, DB>> {
+```
+
+The `send_transaction` method takes a `mut self` transaction manager, effectivelly taking ownership
+of the manager instance.
+When the function is done, it returns that instance alongside the expected transaction receipt.
+This implies and enforces (through the type system) that (1) we will need to instantiate a new
+manager in case the function fails and (2) we can only send transactions sequentially and never
+concurrently. 
+
+```
+let transaction = Transaction {
+    from: wallet.address(),
+    to: H160::random(),
+    value: Value::Number(U256::from(1e9 as u64)),
+    call_data: None,
+};
+
+let result = manager
+    .send_transaction(transaction, 1, Priority::Normal)
+    .await;
+assert!(result.is_err());
+```
+
+In our contrived example, we are sending funds from a random wallet, so it is pretty clear that
+that transaction will fail with a "out of funds" error.
 
 
-The first step is to build the transaction data itself, before signing it and sending it to an Ethereum node.
-Part of the transaction data is fixed, in the sense that we may not arbitrarily change it without altering the effects of a transaction.
-Examples of those are the `to` address, payload and Ether value.
-They are intrinsic to the transaction and are a part of the “application logic”, separate from the “submit transaction logic”.
+## TODO
 
-There are parameters of the transaction data that are extrinsic, in the sense that they (generally) do not change the effects of the transaction.
-Examples of those are the nonce and the gas price.
-They are not part of the application logic and are, in a sense, purely bureaucratic.
+To submit a transaction through the manager, we must first The strategy is used to determine the gas price. The manager will constantly monitor the blockchain, and will resubmit transactions if
 
-Nevertheless, they must be carefully chosen to ensure our transitions are added to the blockchain: a wrong nonce will cause the transaction never to be added, and specifying a low gas price will clog the user account.
-Even then, gas prices are not constant and are subject to wild fluctuations.
-Submitting a transaction with a seemingly reasonable gas price may still clog the user account if the gas price spikes, and specifying a gas price that is too high will waste money.
-
-Discovering the correct nonce in a robust way is not as straightforward as it may initially appear.
-The canonical way of getting the nonce is counting how many transactions by that user account have been added to the blockchain.
-This works well if the user sends transactions infrequently, always waiting for the previous transaction to be mined before sending the next one.
-Otherwise, we may run into duplicate nonces: the transaction pool may contain further transactions that are not counted.
-
-Making things worse, transactions may be dropped from the transaction pool arbitrarily.
-Along with possibly missing an important reaction, a dropped transaction may poison the user account: if there are gaps in the nonce numbering, the account will not be able to include further transactions until the gap is filled.
-
-It is clear that we cannot just submit a transaction and expect it to be added to the ledger.
-There must be some bookkeeping logic between the application and the provider if we want to write a robust application.
-This bookkeeping logic also has to be resilient to process restarts: we must be able to turn on our application with a clean slate and have it function properly.
-
-
-# Transaction Manager
-
-The Transaction Manager is our solution for robustly submitting transactions to the blockchain.
-It is available as a Rust library (a crate, in Rust parlance), and handles all this bookkeeping logic.
-
-To submit a transaction through the manager, we must first specify the intrinsic transaction data and a submission strategy.
-The strategy is used to determine the gas price.
-The manager will constantly monitor the blockchain and gas prices, and will resubmit transactions with outdated prices following the submission strategy.
-
-If a transaction is dropped from the transaction pool, it will be resubmitted automatically by the manager.
-Nonces are also managed automatically.
-When a transaction is first submitted, the manager will allocate the correct nonce to the transaction, reusing the nonce when re-submitting the transaction.
-If a transaction is submitted with a higher strategy than previous transactions, the manager will promote the old transactions to the newer strategy.
-This is done to make sure old underpriced transactions will not clog the user account.
-All of this is handled concurrently and does not block the main application.
-
-Our manager can also attempt to cancel sent transactions.
-Canceling transactions is not a guaranteed thing.
-Once committed to the blockchain, transactions cannot be revoked.
-However, while they are still in the transaction pool, we may attempt to override them.
-The trick consists of submitting a new transaction which does nothing (like transferring zero ether to oneself), but with the same nonce as the transaction we wish to cancel, and with a higher gas price.
-This way, there’s a chance miners will include the transaction with the higher gas price instead of the original one, effectively canceling the original transaction.
-The user still has to pay the base cost of a transaction.
-
-We are releasing the first version of our Transaction Manager.
-There are multiple improvements in the pipeline that we are eager to share with the community when they are ready, including adjustments related to EIP-1559.
-The Transaction Manager is our solution for robustly submitting transactions to the blockchain.
-It is available as a Rust library (a crate, in Rust parlance), and handles all this bookkeeping logic.
-
-To submit a transaction through the manager, we must first specify the intrinsic transaction data and a submission strategy.
-The strategy is used to determine the gas price.
-The manager will constantly monitor the blockchain and gas prices, and will resubmit transactions with outdated prices following the submission strategy.
-
-If a transaction is dropped from the transaction pool, it will be resubmitted automatically by the manager.
-Nonces are also managed automatically.
-When a transaction is first submitted, the manager will allocate the correct nonce to the transaction, reusing the nonce when re-submitting the transaction.
-If a transaction is submitted with a higher strategy than previous transactions, the manager will promote the old transactions to the newer strategy.
-This is done to make sure old underpriced transactions will not clog the user account.
-All of this is handled concurrently and does not block the main application.
-
-Our manager can also attempt to cancel sent transactions.
-Canceling transactions is not a guaranteed thing.
-Once committed to the blockchain, transactions cannot be revoked.
-However, while they are still in the transaction pool, we may attempt to override them.
-The trick consists of submitting a new transaction which does nothing (like transferring zero ether to oneself), but with the same nonce as the transaction we wish to cancel, and with a higher gas price.
-This way, there’s a chance miners will include the transaction with the higher gas price instead of the original one, effectively canceling the original transaction.
-The user still has to pay the base cost of a transaction.
-
-We are releasing the first version of our Transaction Manager.
-There are multiple improvements in the pipeline that we are eager to share with the community when they are ready, including adjustments related to EIP-1559.
+If a transaction is dropped from the transaction pool, it will be resubmitted eventually by the manager. Nonces are also managed automatically. When a transaction is first submitted, the manager will allocate the correct nonce to the transaction, reusing the nonce when re-submitting the transaction.

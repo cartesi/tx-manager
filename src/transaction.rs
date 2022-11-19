@@ -27,7 +27,7 @@ pub struct Transaction {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
-    Number(U256), // in wei for ethereum
+    Number(U256),
     Nothing,
     // All,
 }
