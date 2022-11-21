@@ -14,8 +14,12 @@ use tx_manager::{
     Chain, TransactionManager,
 };
 
-async fn todo() {
+#[tokio::test]
+#[ignore]
+async fn test_doc() {
     let chain = Chain::new(1337);
+
+    let _geth = utilities::Geth_::start(8545, 10);
 
     let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
     let wallet = LocalWallet::new(&mut thread_rng()).with_chain_id(chain.id);
@@ -42,4 +46,5 @@ async fn todo() {
         .send_transaction(transaction, 1, Priority::Normal)
         .await;
     assert!(result.is_err());
+    println!("{:?}", result.err().unwrap());
 }

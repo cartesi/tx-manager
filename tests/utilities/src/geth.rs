@@ -11,14 +11,13 @@ use crate::{Account, ProviderWrapper};
 /// The geth command.
 const GETH: &str = "geth";
 
-pub struct Geth {
+pub struct Geth_ {
     url: String,
     process: std::process::Child,
-    pub provider: ProviderWrapper,
 }
 
-impl Geth {
-    pub fn start(port: u16, block_time: u16, chain: Chain, signer: &Account) -> Geth {
+impl Geth_ {
+    pub fn start(port: u16, block_time: u16) -> Geth_ {
         let mut cmd = Command::new(GETH);
 
         // Using stderr for logs.
@@ -64,9 +63,30 @@ impl Geth {
         child.stderr = Some(reader.into_inner());
 
         let url = format!("http://localhost:{}", port);
-        Geth {
+        Geth_ {
             url: url.clone(),
             process: child,
+        }
+    }
+}
+
+impl Drop for Geth_ {
+    fn drop(&mut self) {
+        self.process.kill().expect("could not kill geth");
+    }
+}
+
+pub struct Geth {
+    pub geth_: Geth_,
+    pub provider: ProviderWrapper,
+}
+
+impl Geth {
+    pub fn start(port: u16, block_time: u16, chain: Chain, signer: &Account) -> Geth {
+        let geth_ = Geth_::start(port, block_time);
+        let url = geth_.url.clone();
+        Geth {
+            geth_,
             provider: ProviderWrapper::new(url, chain, &signer),
         }
     }
@@ -96,15 +116,9 @@ impl Geth {
     /// Auxiliary.
     fn new_command(&self, instruction: &String) -> Vec<u8> {
         Command::new(GETH)
-            .args(["attach", "--exec", instruction, &self.url])
+            .args(["attach", "--exec", instruction, &self.geth_.url])
             .output()
             .unwrap()
             .stdout
-    }
-}
-
-impl Drop for Geth {
-    fn drop(&mut self) {
-        self.process.kill().expect("could not kill geth");
     }
 }
