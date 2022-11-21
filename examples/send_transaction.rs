@@ -14,9 +14,8 @@ use tx_manager::{
     Chain, TransactionManager,
 };
 
-#[tokio::test]
-#[ignore]
-async fn test_doc() {
+#[tokio::main]
+async fn main() {
     let chain = Chain::new(1337);
 
     let _geth = utilities::Geth_::start(8545, 10);

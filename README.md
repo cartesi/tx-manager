@@ -1,6 +1,6 @@
 # Transaction Manager
 
-The `tx-manager` is a rust library for submitting transactions to the
+The `tx-manager` is a Rust library for submitting transactions to the
 blockchain.
 It tries to account for the many scenarios that can befall a transaction sent
 to the transaction pool and adjust accordingly.
@@ -14,7 +14,7 @@ Most notably, it:
 
 ## Usage example
 _The code for this example is available at tests/doc_test.rs. You can run it
-with the `cargo test --test doc_test -- --ignored` command_
+with the `cargo run --example send_transaction` command_
 
 To start sending transactions we must first instantiate a `TransactionManager`
 object by calling its constructor.
@@ -23,7 +23,7 @@ object by calling its constructor.
 TransactionManager::new(provider, gas_oracle, database, chain, configuration)
 ```
 
-The `chain` parameter is a `Chain` object holds a chain ID and a boolean
+The `chain` parameter is a `Chain` object that holds a chain ID and a boolean
 indicating whether or not the target blockchain implements the EIP-1559.
 We can instantiate it by calling the `Chain::new` or `Chain::legacy` functions.
 
@@ -33,8 +33,8 @@ let chain = Chain::new(1337);
 
 The `provider` is an object that implements the `ethers::providers::Middleware`
 trait.
-In our examples, we will send transactions to a local geth node running on
-develop mode.
+(In our examples, we will send transactions to a local geth node running on
+develop mode.)
 
 ```
 let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
@@ -109,9 +109,9 @@ the transaction is placed in a block, so that the function returns successfully.
 In other words, if the number of confirmations is 0, the function returns
 immediatelly after the transaction gets mined, otherwise, it will wait for
 `confirmations` more blocks to be mined before returning.
-(This basically accounts for network reconfigurations.)
+(This basically accounts for network reorganizations.)
 
-The `priority` level is a parameter send to the gas oracle to calculate the
+The `priority` level is a parameter sent to the gas oracle to calculate the
 appropriate gas fees. Higher priorities cost more, but reduce waiting times,
 and vice-versa for lower priorities.
 
