@@ -13,8 +13,8 @@ Most notably, it:
 - Recovers from hard crashes.
 
 ## Usage example
-_The code for this example is available at tests/doc_test.rs. You can run it
-with the `cargo run --example send_transaction` command_
+_The code for this example is available at examples/send_transaction.rs.
+You can run it with the `cargo run --example send_transaction` command._
 
 To start sending transactions we must first instantiate a `TransactionManager`
 object by calling its constructor.
