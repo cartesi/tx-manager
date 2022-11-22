@@ -1,5 +1,6 @@
 target
 .DS_Store
-goerli-geth-datadir
+Cargo.lock
+
 test_database.json
 tests/configuration.json
