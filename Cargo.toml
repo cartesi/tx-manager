@@ -1,8 +1,11 @@
 [package]
 name = "eth-tx-manager"
 license = "Apache-2.0"
-version = "0.9.0"
+description = "A library for submitting transactions to the blockchain."
 homepage = "https://github.com/cartesi"
+repository = "https://github.com/cartesi/tx-manager"
+readme = "README.md"
+version = "0.9.0"
 edition = "2021"
 authors = [
   "Renan Santos <renan.santos@cartesi.io>",
