@@ -4,7 +4,6 @@ on: [ pull_request ]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_REGISTRIES_CARTESI_INDEX: ${{ secrets.CARGO_REGISTRIES_CARTESI_INDEX }}
   RUST_LOG: "tx_manager::manager=trace"
   ETHEREUM_URL: ${{ secrets.ETHEREUM_URL }}
   ARBITRUM_URL: ${{ secrets.ARBITRUM_URL }}
