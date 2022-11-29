@@ -4,7 +4,7 @@ on: [ pull_request ]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: "tx_manager::manager=trace"
+  RUST_LOG: "eth_tx_manager::manager=trace"
   ETHEREUM_URL: ${{ secrets.ETHEREUM_URL }}
   ARBITRUM_URL: ${{ secrets.ARBITRUM_URL }}
   OPTIMISM_URL: ${{ secrets.OPTIMISM_URL }}
