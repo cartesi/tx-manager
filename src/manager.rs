@@ -310,7 +310,7 @@ where
             // FIXME: "insufficient funds for transfer" is detected here!
             typed_transaction.set_gas(
                 self.provider
-                    .estimate_gas(&typed_transaction)
+                    .estimate_gas(&typed_transaction, None)
                     .await
                     .map_err(Error::Middleware)?,
             );

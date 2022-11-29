@@ -6,7 +6,7 @@ use ethers::{
 use serial_test::serial;
 use std::{fs::remove_file, sync::Arc, time::Duration};
 
-use tx_manager::{
+use eth_tx_manager::{
     database::FileSystemDatabase,
     gas_oracle::{DefaultGasOracle, GasOracle},
     manager::{Configuration, Manager},

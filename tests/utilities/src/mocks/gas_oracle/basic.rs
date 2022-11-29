@@ -1,6 +1,8 @@
 use async_trait::async_trait;
-use tx_manager::gas_oracle::{GasOracle, GasOracleInfo};
-use tx_manager::transaction::Priority;
+use eth_tx_manager::{
+    gas_oracle::{GasOracle, GasOracleInfo},
+    transaction::Priority,
+};
 
 #[derive(Clone, Debug)]
 pub struct MockGasOracle {

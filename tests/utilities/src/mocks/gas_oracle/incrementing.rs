@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use ethers::types::U256;
-use tx_manager::{
+use eth_tx_manager::{
     gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
     transaction::Priority,
 };
+use ethers::types::U256;
 
 #[derive(Clone, Debug)]
 pub struct IncrementingGasOracle {}

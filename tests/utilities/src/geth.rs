@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tx_manager::Chain;
+use eth_tx_manager::Chain;
 
 use crate::{Account, ProviderWrapper};
 

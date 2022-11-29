@@ -1,6 +1,6 @@
 # Transaction Manager
 
-The `tx-manager` is a Rust library for submitting transactions to the
+The `eth-tx-manager` is a Rust library for submitting transactions to the
 blockchain.
 It tries to account for the many scenarios that can befall a transaction sent
 to the transaction pool and adjust accordingly.

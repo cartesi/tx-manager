@@ -2,7 +2,7 @@ use ethers::types::{TransactionReceipt, U256};
 use serial_test::serial;
 use std::time::Duration;
 
-use tx_manager::{
+use eth_tx_manager::{
     gas_oracle::{EIP1559GasInfo, GasInfo, GasOracle, GasOracleInfo},
     manager::{Configuration, Manager},
     transaction::{PersistentState, Priority, StaticTxData, SubmittedTxs, Transaction, Value},
@@ -20,8 +20,8 @@ use utilities::{
     Account,
 };
 
-type MockManagerError = tx_manager::Error<MockMiddleware, MockGasOracle, MockDatabase>;
-type MockManagerError2<GO> = tx_manager::Error<MockMiddleware, GO, MockDatabase>;
+type MockManagerError = eth_tx_manager::Error<MockMiddleware, MockGasOracle, MockDatabase>;
+type MockManagerError2<GO> = eth_tx_manager::Error<MockMiddleware, GO, MockDatabase>;
 
 const CHAIN: Chain = Chain {
     id: 1337,
@@ -61,7 +61,8 @@ async fn test_manager_new() {
         db.get_state_output = None;
         let result =
             Manager::new(middleware, gas_oracle, db, CHAIN, Configuration::default()).await;
-        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Get);
+        let expected_err: MockManagerError =
+            eth_tx_manager::Error::Database(DatabaseStateError::Get);
         assert_err!(result, expected_err);
     }
 
@@ -132,7 +133,8 @@ async fn test_manager_new() {
             },
         )
         .await;
-        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Clear);
+        let expected_err: MockManagerError =
+            eth_tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
     }
 }
@@ -275,7 +277,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionCount);
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionCount);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_count_n)
     }
@@ -288,7 +290,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::EstimateGas);
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::EstimateGas);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().estimate_gas_n)
     }
@@ -301,7 +303,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::SignTransaction);
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::SignTransaction);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().sign_transaction_n)
     }
@@ -314,7 +316,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::SendTransaction);
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::SendTransaction);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().send_raw_transaction_n)
     }
@@ -327,7 +329,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionReceipt(1));
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::GetTransactionReceipt(1));
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_transaction_receipt_n)
     }
@@ -340,7 +342,7 @@ async fn test_manager_send_transaction_basic_middleware_errors() {
         })
         .await;
         let expected_err: MockManagerError =
-            tx_manager::Error::Middleware(MockMiddlewareError::GetBlockNumber);
+            eth_tx_manager::Error::Middleware(MockMiddlewareError::GetBlockNumber);
         assert_err!(result, expected_err);
         assert_eq!(1, MockMiddleware::global().get_block_number_n)
     }
@@ -372,7 +374,7 @@ async fn test_manager_send_transaction_basic_gas_oracle_errors() {
             (middleware, gas_oracle, db)
         })
         .await;
-        let expected_err: MockManagerError = tx_manager::Error::GasOracle(
+        let expected_err: MockManagerError = eth_tx_manager::Error::GasOracle(
             MockGasOracleError::GasInfo,
             MockMiddlewareError::EstimateEIP1559Fees,
         );
@@ -394,7 +396,8 @@ async fn test_manager_send_transaction_basic_database_errors() {
             (middleware, gas_oracle, db)
         })
         .await;
-        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Set);
+        let expected_err: MockManagerError =
+            eth_tx_manager::Error::Database(DatabaseStateError::Set);
         assert_err!(result, expected_err);
         assert_eq!(1, MockDatabase::global().set_state_n);
     }
@@ -406,7 +409,8 @@ async fn test_manager_send_transaction_basic_database_errors() {
             (middleware, gas_oracle, db)
         })
         .await;
-        let expected_err: MockManagerError = tx_manager::Error::Database(DatabaseStateError::Clear);
+        let expected_err: MockManagerError =
+            eth_tx_manager::Error::Database(DatabaseStateError::Clear);
         assert_err!(result, expected_err);
         assert_eq!(1, MockDatabase::global().clear_state_n);
     }
@@ -430,7 +434,7 @@ const HASH2: &str = "0x29e425df042e83e4ddb3ee3348d6d745c58fce8f";
 const TRANSACTION_HASH1: &str =
     "0x2b34df791cc4eb898f6d4437713e946f216cac6a3921b2899db919abe26739b2";
 
-async fn setup_manager<GO: tx_manager::gas_oracle::GasOracle>(
+async fn setup_manager<GO: eth_tx_manager::gas_oracle::GasOracle>(
     middleware: MockMiddleware,
     gas_oracle: GO,
     mut db: MockDatabase,

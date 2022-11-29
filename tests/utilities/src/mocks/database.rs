@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use tx_manager::transaction;
+use eth_tx_manager::transaction;
 
 #[derive(Debug)]
 pub struct MockDatabase {
@@ -37,7 +37,7 @@ pub enum DatabaseStateError {
 }
 
 #[async_trait]
-impl tx_manager::database::Database for MockDatabase {
+impl eth_tx_manager::database::Database for MockDatabase {
     type Error = DatabaseStateError;
 
     async fn set_state(&mut self, _: &transaction::PersistentState) -> Result<(), Self::Error> {

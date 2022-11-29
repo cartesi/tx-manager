@@ -6,7 +6,7 @@ use ethers::{
     types::{H160, U256},
 };
 
-use tx_manager::{
+use eth_tx_manager::{
     database::FileSystemDatabase,
     gas_oracle::DefaultGasOracle,
     manager::Configuration,

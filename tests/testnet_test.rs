@@ -6,7 +6,7 @@ use ethers::{
 };
 use std::{fs::remove_file, time::Duration};
 
-use tx_manager::{
+use eth_tx_manager::{
     database::{Database, FileSystemDatabase},
     gas_oracle::{GasInfo, GasOracle, GasOracleInfo, LegacyGasInfo},
     manager::{Configuration, Manager},
@@ -108,7 +108,7 @@ async fn create_manager(
     SignerMiddleware<Provider<Http>, Wallet<SigningKey>>,
     TestnetGasOracle,
     FileSystemDatabase,
-    tx_manager::time::DefaultTime,
+    eth_tx_manager::time::DefaultTime,
 > {
     let database_path = format!("{}_test_database.json", key,);
     remove_file(database_path.clone()).unwrap_or(());
@@ -131,7 +131,7 @@ async fn send_transaction<M: Middleware, GO: GasOracle, DB: Database, T: Time>(
     manager: Manager<M, GO, DB, T>,
     from: Account,
     to: Account,
-) -> Result<(Manager<M, GO, DB, T>, TransactionReceipt), tx_manager::Error<M, GO, DB>>
+) -> Result<(Manager<M, GO, DB, T>, TransactionReceipt), eth_tx_manager::Error<M, GO, DB>>
 where
     M: Send + Sync,
     GO: Send + Sync,

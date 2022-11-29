@@ -9,7 +9,7 @@ use ethers::{
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::EnvFilter;
 
-use tx_manager::Chain;
+use eth_tx_manager::Chain;
 
 // ------------------------------------------------------------------------------------------------
 // Macros

@@ -1,7 +1,9 @@
 use async_trait::async_trait;
-use std::fmt::Debug;
-use std::time::{Duration, Instant};
-use tx_manager::time::Time;
+use eth_tx_manager::time::Time;
+use std::{
+    fmt::Debug,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Debug)]
 pub struct MockTime;

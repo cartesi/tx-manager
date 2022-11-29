@@ -1,11 +1,13 @@
 use async_trait::async_trait;
-use ethers::providers::{FromErr, Middleware, MockProvider, PendingTransaction, Provider};
-use ethers::signers::{LocalWallet, Signer};
-use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::{
-    Address, BlockId, Bytes, NameOrAddress, Signature, TransactionReceipt, TxHash, U256, U64,
+use ethers::{
+    providers::{FromErr, Middleware, MockProvider, PendingTransaction, Provider},
+    signers::{LocalWallet, Signer},
+    types::{
+        transaction::eip2718::TypedTransaction, Address, BlockId, Bytes, NameOrAddress, Signature,
+        TransactionReceipt, TxHash, U256, U64,
+    },
+    utils::keccak256,
 };
-use ethers::utils::keccak256;
 use std::collections::HashMap;
 
 // Middleware mock.
@@ -89,7 +91,11 @@ impl Middleware for MockMiddleware {
         &self.provider.0
     }
 
-    async fn estimate_gas(&self, _: &TypedTransaction) -> Result<U256, Self::Error> {
+    async fn estimate_gas(
+        &self,
+        _: &TypedTransaction,
+        _: Option<BlockId>,
+    ) -> Result<U256, Self::Error> {
         unsafe {
             GLOBAL.estimate_gas_n += 1;
         }
