@@ -10,29 +10,25 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
 jobs:
-  publish-eth-tx-manager:
-    name: 🌎 Publish eth-tx-manager crate
+  publish-crates-io:
+    name: 🌎 Publish to crates.io
     runs-on: ubuntu-latest
     steps:
-      - name: 📚 Clone repository
+      - name: 📚 Clone
         uses: actions/checkout@v2
       - name: 📦 Install stable Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           default: true
-      - name: 📦 Package eth-tx-manager
+      - name: 📦 Package
         uses: actions-rs/cargo@v1
         with:
           command: package
-      - name: 🌎 Log in to crates.io 
-        uses: actions-rs/cargo@v1
-        with:
-          command: login
-          args: ${{ secrets.CARGO_CRATES_IO_API_TOKEN }}
-      - name: 🌎 Publish eth-tx-manager
+      - name: 🌎 Publish
         uses: actions-rs/cargo@v1
         with:
           command: publish 
