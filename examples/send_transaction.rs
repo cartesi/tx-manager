@@ -18,8 +18,6 @@ use eth_tx_manager::{
 async fn main() {
     let chain = Chain::new(1337);
 
-    let _geth = utilities::Geth_::start(8545, 10);
-
     let provider = Provider::<Http>::try_from("http://localhost:8545").unwrap();
     let wallet = LocalWallet::new(&mut thread_rng()).with_chain_id(chain.id);
     let provider = SignerMiddleware::new(provider, wallet.clone());

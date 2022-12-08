@@ -14,7 +14,8 @@ Most notably, it:
 
 ## Usage example
 _The code for this example is available at examples/send_transaction.rs.
-You can run it with the `cargo run --example send_transaction` command._
+You can run it with the `cargo run --example send_transaction` command.
+You need to have a local geth node running on dev mode._
 
 To start sending transactions we must first instantiate a `TransactionManager`
 object by calling its constructor.
