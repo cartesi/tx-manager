@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.1] - 2023-03-09
 - Remove `structopt` and add `clap` for CLI configuration.
+- Fix optimism testnet test.
 
 ## [0.9.0] - 2022-11-28
 - Change to eth-tx-manager.

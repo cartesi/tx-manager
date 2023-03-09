@@ -34,7 +34,7 @@ async fn test_polygon() {
 
 #[tokio::test]
 async fn test_optimism() {
-    test_eip1559_fail("optimism", Chain::new(420)).await;
+    test_testnet_ok("optimism", Chain::new(420)).await;
     test_testnet_ok("optimism", Chain::legacy(420)).await;
 }
 
@@ -74,6 +74,7 @@ async fn test_testnet_ok(key: &str, chain: Chain) {
     provider.check_transaction_balance(balance, AMOUNT).await;
 }
 
+/*
 /// Expected to fail with the "EIP-1559 not activated" error.
 async fn test_eip1559_fail(key: &str, chain: Chain) {
     utilities::setup_tracing();
@@ -99,6 +100,7 @@ async fn test_eip1559_fail(key: &str, chain: Chain) {
         err
     );
 }
+*/
 
 async fn create_manager(
     key: &str,
