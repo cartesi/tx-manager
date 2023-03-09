@@ -1,46 +1,47 @@
+use clap::Parser;
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, WalletError};
-use std::fs;
-use structopt::StructOpt;
+use std::{fmt::Debug, fs};
 
 use crate::Chain;
 
-#[derive(StructOpt, Clone)]
-#[structopt(name = "tx_config", about = "Configuration for transaction manager")]
+#[derive(Clone, Parser)]
+#[command(name = "tx_config")]
+#[command(about = "Configuration for transaction manager")]
 pub struct TxEnvCLIConfig {
     /// Blockchain provider http endpoint url
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_provider_http_endpoint: Option<String>,
 
     /// Signer mnemonic, overrides `tx_mnemonic_file`
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_mnemonic: Option<String>,
 
     /// Signer mnemonic file path
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_mnemonic_file: Option<String>,
 
     /// Mnemonic account index
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_mnemonic_account_index: Option<u32>,
 
     /// Chain ID
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_chain_id: Option<u64>,
 
     /// EIP1559 flag
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_chain_is_legacy: Option<bool>,
 
     /// Path to tx manager database file
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_database_path: Option<String>,
 
     /// Ethereum gas station oracle api key
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_gas_oracle_api_key: Option<String>,
 
     /// Default confirmations
-    #[structopt(long, env)]
+    #[arg(long, env)]
     pub tx_default_confirmations: Option<usize>,
 }
 
@@ -55,7 +56,7 @@ pub struct TxManagerConfig {
     pub gas_oracle_api_key: String,
 }
 
-impl std::fmt::Debug for TxManagerConfig {
+impl Debug for TxManagerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxManagerConfig")
             .field("default_confirmations", &self.default_confirmations)
@@ -100,7 +101,7 @@ const DEFAULT_GAS_ORACLE_API_KEY: &str = "";
 
 impl TxManagerConfig {
     pub fn initialize_from_args() -> Result<Self> {
-        let env_cli_config = TxEnvCLIConfig::from_args();
+        let env_cli_config = TxEnvCLIConfig::parse();
         Self::initialize(env_cli_config)
     }
 
