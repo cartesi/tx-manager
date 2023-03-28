@@ -13,23 +13,23 @@ authors = [
 ]
 
 [dependencies]
+async-recursion = "1.0"
+async-trait = "0.1"
+clap = { version = "4.1", features = ["derive", "env"] }
 ethers = { version = "1.0", features = ["rustls"] }
-tokio = { version = "1", features = ["fs", "macros"] }
+reqwest = { version = "0.11", features = ["json"] }
 serde = "1.0"
 serde_json = "1.0"
-async-trait = "0.1"
-async-recursion = "1.0"
-reqwest = { version = "0.11", features = ["json"] }
 structopt = "0.3"
-tracing = "0.1"
 thiserror = "1.0"
+tokio = { version = "1", features = ["fs", "macros"] }
+tracing = "0.1"
 url = "2.2"
-clap = { version = "4.1", features = ["derive", "env"] }
 
 [dev-dependencies]
 ethers = { version = "1.0", features = ["abigen"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serial_test = "0.8"
-utilities = { path = "tests/utilities" }
 hex = "0.4"
+serial_test = "0.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utilities = { path = "tests/utilities" }
 
