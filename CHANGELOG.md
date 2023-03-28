@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2023-03-29
+- feat: remove auth config.
+- chore: sort Cargo.toml dependencies.
+
 ## [0.9.1] - 2023-03-09
 - Remove `structopt` and add `clap` for CLI configuration.
 - Fix optimism testnet test.
@@ -61,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2021-12-28
 - Initial release
 
-[Unreleased]: https://github.com/cartesi-corp/tx-manager/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/cartesi-corp/tx-manager/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/cartesi-corp/tx-manager/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/cartesi-corp/tx-manager/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/cartesi-corp/tx-manager/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/cartesi-corp/tx-manager/compare/v0.8.0...v0.8.1
