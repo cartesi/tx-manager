@@ -81,18 +81,18 @@ impl TxManagerConfig {
 
         let provider_http_endpoint = env_cli_config
             .tx_provider_http_endpoint
-            .unwrap_or(DEFAULT_HTTP_ENDPOINT.to_string());
+            .unwrap_or_else(|| DEFAULT_HTTP_ENDPOINT.to_string());
 
         let chain_id = env_cli_config.tx_chain_id.ok_or(Error::MissingChainId)?;
         let chain_is_legacy = env_cli_config.tx_chain_is_legacy.unwrap_or(false);
 
         let database_path = env_cli_config
             .tx_database_path
-            .unwrap_or(DEFAULT_DATABASE_PATH.to_string());
+            .unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_string());
 
         let gas_oracle_api_key = env_cli_config
             .tx_gas_oracle_api_key
-            .unwrap_or(DEFAULT_GAS_ORACLE_API_KEY.to_string());
+            .unwrap_or_else(|| DEFAULT_GAS_ORACLE_API_KEY.to_string());
 
         Ok(Self {
             default_confirmations,

@@ -10,12 +10,12 @@ pub enum DefaultGasOracleError {
     Default,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DefaultGasOracle {}
 
 impl DefaultGasOracle {
     pub fn new() -> DefaultGasOracle {
-        DefaultGasOracle {}
+        DefaultGasOracle::default()
     }
 }
 
