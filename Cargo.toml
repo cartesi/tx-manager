@@ -27,7 +27,7 @@ tracing = "0.1"
 [dev-dependencies]
 ethers = { version = "1.0", features = ["abigen"] }
 hex = "0.4"
-serial_test = "0.8"
+serial_test = "2.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utilities = { path = "tests/utilities" }
 
