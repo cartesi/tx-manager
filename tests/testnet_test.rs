@@ -143,11 +143,11 @@ where
     let transaction = Transaction {
         from: from.into(),
         to: to.into(),
-        value: Value::Number(utilities::gwei_to_wei(AMOUNT).into()),
+        value: Value::Number(utilities::gwei_to_wei(AMOUNT)),
         call_data: None,
     };
     manager
-        .send_transaction(transaction, 0, Priority::Normal)
+        .send_transaction(transaction, 3, Priority::Normal)
         .await
 }
 

@@ -6,9 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.0] - 2023-03-29
-- feat: remove auth config.
+## [0.10.0] - 2023-04-12
 - chore: sort Cargo.toml dependencies.
+- feat: remove auth config.
+- chore: run cargo-outdated.
+- chore: run cargo-clippy.
+- test: increase confirmations for testnet test.
 
 ## [0.9.1] - 2023-03-09
 - Remove `structopt` and add `clap` for CLI configuration.
