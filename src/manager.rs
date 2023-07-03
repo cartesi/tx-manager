@@ -514,7 +514,7 @@ where
                 Ok(gas_oracle_info)
             }
             Err(err1) => {
-                warn!(
+                trace!(
                     "Gas oracle has failed and/or is defaulting to the provider ({}).",
                     err1.to_string()
                 );
