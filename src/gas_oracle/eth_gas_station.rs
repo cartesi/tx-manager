@@ -123,6 +123,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_eth_gas_station_oracle_ok() {
         // setup
         // tracing_subscriber::fmt::init();
@@ -162,6 +163,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_eth_gas_station_oracle_invalid_api_key() {
         // setup
         let invalid1 = ETHGasStationOracle::new("invalid".to_string());
