@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2023-07-04
+- chore: ignore gas oracle tests
+- chore: change gas oracle warn to trace
+
 ## [0.10.0] - 2023-04-12
 - chore: sort Cargo.toml dependencies.
 - feat: remove auth config.
